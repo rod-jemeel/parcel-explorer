@@ -115,7 +115,7 @@ export interface SourceCoverage {
   note: string;
 }
 export interface Coverage {
-  storage_format?: "paged-v1";
+  storage_format?: "paged-v1" | "sqlite-v1";
   building_footprints?: number;
   release_id: string;
   parser_version: string;

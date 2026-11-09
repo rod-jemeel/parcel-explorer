@@ -4,6 +4,7 @@ import type {
   PropertyProfile,
   HistoryPage,
 } from "./model";
+import { publicUrl, type PublicState } from "./search";
 export async function fetchJSON<T>(
   url: string,
   signal?: AbortSignal,
@@ -29,6 +30,46 @@ export const getCoverage = async (signal?: AbortSignal) => {
 };
 export const getIndex = (release: string, signal?: AbortSignal) =>
   fetchJSON<PropertySummary[]>(`/data/${release}/index.json`, signal);
+export function searchRelease(
+  release: string,
+  state: PublicState,
+  limit: number,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams(publicUrl(state).slice(1));
+  params.set("limit", String(limit));
+  return fetchJSON<{
+    results: PropertySummary[];
+    total: number;
+    status: "ok" | "outside_coverage";
+    isPlace: boolean;
+  }>(`/data/${release}/search.json?${params}`, signal);
+}
+export function getSummaries(
+  release: string,
+  ids: string[],
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams();
+  for (const id of ids) params.append("bbl", id);
+  return fetchJSON<PropertySummary[]>(
+    `/data/${release}/summaries.json?${params}`,
+    signal,
+  );
+}
+export function getMapMatches(
+  release: string,
+  state: PublicState,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams(publicUrl(state).slice(1));
+  params.set("matches", "1");
+  return fetchJSON<string[]>(`/data/${release}/search.json?${params}`, signal);
+}
+
+function hasPagedHistory(release: string) {
+  return ["paged-v1", "sqlite-v1"].includes(releaseFormats.get(release) || "");
+}
 export async function getProfile(
   release: string,
   bbl: string,
@@ -38,7 +79,7 @@ export async function getProfile(
   const key = release + ":" + bbl;
   const cached = profiles.get(key);
   if (cached) return cached;
-  if (releaseFormats.get(release) !== "paged-v1") {
+  if (!hasPagedHistory(release)) {
     const shard = await fetchJSON<Record<string, PropertyProfile>>(
       `/data/${release}/profiles/${Number(bbl.slice(1, 6))}.json`,
       signal,
@@ -73,7 +114,7 @@ export async function getHistory(
     page < 0
   )
     throw new Error("Invalid history request");
-  if (releaseFormats.get(release) !== "paged-v1") {
+  if (!hasPagedHistory(release)) {
     const profile = (await getProfile(
       release,
       bbl,

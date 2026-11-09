@@ -25,10 +25,18 @@ import {
   MapPin,
   Search,
   SlidersHorizontal,
+  Sparkles,
   SquareStack,
   X,
 } from "lucide-react";
-import { getCoverage, getIndex } from "@/lib/data";
+import {
+  getCoverage,
+  getIndex,
+  getMapMatches,
+  getProfile,
+  getSummaries,
+  searchRelease,
+} from "@/lib/data";
 import { Bounds, LAND_USES, PropertySummary } from "@/lib/model";
 import {
   defaultFilters,
@@ -43,6 +51,7 @@ import {
 } from "@/lib/search";
 import Inspector, { SavedResearch, SourcesContent } from "./Inspector";
 import { FilterPanel, LayersPanel, SavedPanel, Tool, ToolPanel } from "./Tools";
+import LotSearchAssistant from "./LotSearchAssistant";
 import type { MapHandle } from "./ParcelMap";
 const ParcelMap = dynamic(() => import("./ParcelMap"), {
   ssr: false,
@@ -93,14 +102,15 @@ function Workspace() {
   const [buildings, setBuildings] = useState(true);
   const [saved, setSaved] = useState<Record<string, SavedResearch>>({});
   const [toast, setToast] = useState("");
+  const [viewZoom, setViewZoom] = useState(0);
   const [viewBounds, setViewBounds] = useState<Bounds | null>(null);
-  const [areaMoved, setAreaMoved] = useState(false);
   const [candidates, setCandidates] = useState<string[]>([]);
   const mapRef = useRef<MapHandle>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const scrollPosition = useRef(0);
   const lastFocus = useRef<HTMLElement | null>(null);
+  const parcelRequest = useRef<AbortController | null>(null);
   const {
     data: coverage,
     error: coverageError,
@@ -110,20 +120,27 @@ function Workspace() {
     queryFn: ({ signal }) => getCoverage(signal),
     staleTime: Infinity,
   });
+  const boroughMode = coverage?.storage_format === "sqlite-v1";
   const {
-    data: properties = [],
-    isPending: indexPending,
-    error: indexError,
-    refetch: refetchIndex,
+    data: localProperties = [],
+    isPending: localPending,
+    error: localError,
+    refetch: refetchLocal,
   } = useQuery({
     queryKey: ["index", coverage?.release_id],
     queryFn: ({ signal }) => getIndex(coverage!.release_id, signal),
-    enabled: !!coverage,
+    enabled: !!coverage && !boroughMode,
     staleTime: Infinity,
   });
   useEffect(() => {
     const s = readPublicState(location.search);
     setState(s);
+    const params = new URLSearchParams(location.search);
+    const askProperty = params.get("ask") === "1" && !!s.selected;
+    const openAssistant = askProperty || params.get("find") === "1";
+    if (openAssistant) {
+      setTool("ai");
+    }
     setInput(s.q);
     setHasSearched(
       !!s.q ||
@@ -131,7 +148,7 @@ function Workspace() {
         JSON.stringify(s.filters) !== JSON.stringify(defaultFilters()),
     );
     setResultsOpen(!!s.q && !s.selected);
-    setInspectorOpen(!!s.selected);
+    setInspectorOpen(!!s.selected && !openAssistant);
     setExpanded(!!s.selected);
     try {
       const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -156,6 +173,7 @@ function Workspace() {
     }
     setHydrated(true);
     const pop = () => {
+      parcelRequest.current?.abort();
       const next = readPublicState(location.search);
       setState(next);
       setInput(next.q);
@@ -166,7 +184,10 @@ function Workspace() {
       if (next.camera) mapRef.current?.camera(next.camera);
     };
     window.addEventListener("popstate", pop);
-    return () => window.removeEventListener("popstate", pop);
+    return () => {
+      window.removeEventListener("popstate", pop);
+      parcelRequest.current?.abort();
+    };
   }, []);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(input), 180);
@@ -192,23 +213,69 @@ function Workspace() {
     },
     [coverage],
   );
-  const search = useMemo(
-    () => searchProperties(properties, state),
-    [properties, state.q, state.filters, state.bounds, state.sort],
+  const localSearch = useMemo(
+    () => searchProperties(localProperties, state),
+    [localProperties, state.q, state.filters, state.bounds, state.sort],
   );
-  const suggestions = useMemo(() => {
+  const localSuggestions = useMemo(() => {
     if (!debounced.trim()) return [];
-    return searchProperties(properties, {
-      ...state,
+    return searchProperties(localProperties, {
+      ...initial,
       q: debounced,
-      bounds: null,
-      filters: defaultFilters(),
     }).results.slice(0, 6);
-  }, [properties, debounced]);
-  const selected = useMemo(
-    () => properties.find((p) => p.bbl === state.selected),
-    [properties, state.selected],
-  );
+  }, [localProperties, debounced]);
+  const release = coverage?.release_id || "";
+  const boroughSearch = useQuery({
+    queryKey: [
+      "borough-search",
+      release,
+      state.q,
+      state.filters,
+      state.bounds,
+      state.sort,
+      visibleCount,
+    ],
+    queryFn: ({ signal }) =>
+      searchRelease(release, state, visibleCount, signal),
+    enabled: boroughMode && (hasSearched || resultsOpen),
+  });
+  const boroughSuggestions = useQuery({
+    queryKey: ["borough-suggestions", release, debounced],
+    queryFn: ({ signal }) =>
+      searchRelease(release, { ...initial, q: debounced }, 6, signal),
+    enabled: boroughMode && suggestionsOpen && !!debounced.trim(),
+  });
+  const selectedProfile = useQuery({
+    queryKey: ["borough-selection", release, state.selected],
+    queryFn: ({ signal }) => getProfile(release, state.selected!, signal),
+    enabled: boroughMode && !!state.selected,
+  });
+  const referencedIds = [...new Set([...Object.keys(saved), ...candidates])];
+  const references = useQuery({
+    queryKey: ["borough-references", release, referencedIds],
+    queryFn: ({ signal }) => getSummaries(release, referencedIds, signal),
+    enabled:
+      boroughMode &&
+      !!referencedIds.length &&
+      (tool === "saved" || !!candidates.length),
+  });
+  const properties = boroughMode ? references.data || [] : localProperties;
+  const search = boroughMode ? boroughSearch.data || localSearch : localSearch;
+  const suggestions = boroughMode
+    ? boroughSuggestions.data?.results || []
+    : localSuggestions;
+  const selected = boroughMode
+    ? selectedProfile.data
+    : properties.find((p) => p.bbl === state.selected);
+  const indexPending = boroughMode ? boroughSearch.isPending : localPending;
+  const indexError = boroughMode
+    ? boroughSearch.error || selectedProfile.error
+    : localError;
+  const refetchIndex = boroughMode
+    ? selectedProfile.error
+      ? selectedProfile.refetch
+      : boroughSearch.refetch
+    : refetchLocal;
   const activeFilterCount =
     state.filters.uses.length +
     (
@@ -223,10 +290,36 @@ function Workspace() {
     ).filter((k) => state.filters[k] !== null).length +
     Number(state.filters.hasRecords) +
     Number(state.filters.includeUnknown);
-  const matching = useMemo(
-    () => (hasSearched ? search.results.map((p) => p.bbl) : null),
-    [search.results, hasSearched],
-  );
+  const matchBounds: Bounds | null =
+    viewBounds && state.bounds
+      ? [
+          Math.max(viewBounds[0], state.bounds[0]),
+          Math.max(viewBounds[1], state.bounds[1]),
+          Math.min(viewBounds[2], state.bounds[2]),
+          Math.min(viewBounds[3], state.bounds[3]),
+        ]
+      : viewBounds || state.bounds;
+  const matchable =
+    !!matchBounds &&
+    matchBounds[0] < matchBounds[2] &&
+    matchBounds[1] < matchBounds[3];
+  const boroughMatches = useQuery({
+    queryKey: [
+      "borough-map-matches",
+      release,
+      state.q,
+      state.filters,
+      matchBounds,
+    ],
+    queryFn: ({ signal }) =>
+      getMapMatches(release, { ...state, bounds: matchBounds }, signal),
+    enabled: boroughMode && hasSearched && matchable && viewZoom >= 13,
+  });
+  const matching = !hasSearched
+    ? null
+    : boroughMode && viewBounds
+      ? boroughMatches.data || []
+      : search.results.map((p) => p.bbl);
   const selectedOutside =
     selected && viewBounds
       ? selected.bounds[2] < viewBounds[0] ||
@@ -239,6 +332,7 @@ function Workspace() {
     lastFocus.current?.focus();
   };
   const toggleTool = (next: Tool) => {
+    parcelRequest.current?.abort();
     lastFocus.current = document.activeElement as HTMLElement;
     setTool(tool === next ? null : next);
     setSuggestionsOpen(false);
@@ -246,6 +340,7 @@ function Workspace() {
     setInspectorOpen(false);
   };
   const selectProperty = (p: PropertySummary, fit: boolean) => {
+    parcelRequest.current?.abort();
     if (resultsRef.current)
       scrollPosition.current = resultsRef.current.scrollTop;
     update({ selected: p.bbl });
@@ -261,7 +356,8 @@ function Workspace() {
     }, 50);
     searchRef.current?.blur();
   };
-  const submit = (value = input) => {
+  const submit = (value = input, filters?: PublicState["filters"], bounds: Bounds | null = null) => {
+    parcelRequest.current?.abort();
     setInput(value);
     setSuggestionsOpen(false);
     setSuggestionIndex(-1);
@@ -270,20 +366,21 @@ function Workspace() {
     setResultsOpen(true);
     setHasSearched(true);
     setVisibleCount(40);
-    update({ q: value, selected: state.selected });
+    update({ q: value, selected: state.selected, ...(filters ? { filters, bounds } : {}) });
     if (
       [
         "brooklyn",
         "kings county",
-        "dumbo",
-        "brooklyn heights",
-        "downtown brooklyn",
+        "brooklyn ny",
+        "brooklyn, ny",
+        ...(!boroughMode ? ["dumbo", "brooklyn heights", "downtown brooklyn"] : []),
       ].includes(value.trim().toLowerCase())
     )
       mapRef.current?.reset();
     searchRef.current?.blur();
   };
   const returnToResults = () => {
+    parcelRequest.current?.abort();
     setInspectorOpen(false);
     if (hasSearched) {
       setResultsOpen(true);
@@ -294,6 +391,7 @@ function Workspace() {
     } else searchRef.current?.focus();
   };
   const clearSearch = () => {
+    parcelRequest.current?.abort();
     setInput("");
     setSuggestionsOpen(false);
     setHasSearched(false);
@@ -428,7 +526,6 @@ function Workspace() {
           <ChevronDown size={13} />
         </button>
         <span className="pilot-badge">Local pilot</span>
-        <div className="header-spacer" />
         <button
           className="header-source-button"
           onClick={() => toggleTool("coverage")}
@@ -456,52 +553,6 @@ function Workspace() {
           <span>My workspace</span>
           <span className="avatar">R</span>
         </div>
-      </header>
-      <main
-        className={`map-workspace ${inspectorOpen && expanded ? "detail-open" : ""}`}
-      >
-        {coverage && hydrated ? (
-          <ParcelMap
-            key={coverage.release_id}
-            ref={mapRef}
-            coverage={coverage}
-            selected={state.selected}
-            hovered={hovered}
-            matching={matching}
-            parcels={parcels}
-            boundary={boundary}
-            colored={colored}
-            imagery={imagery}
-            buildings={buildings}
-            initialCamera={state.camera}
-            onSelect={(ids) => {
-              if (ids.length > 1) setCandidates(ids);
-              else {
-                const p = properties.find((p) => p.bbl === ids[0]);
-                if (p) selectProperty(p, false);
-              }
-            }}
-            onMove={(b, c) => {
-              setViewBounds(b);
-              setAreaMoved(true);
-              const next = { ...stateRef.current, camera: c };
-              stateRef.current = next;
-              setState(next);
-              const params = new URLSearchParams(publicUrl(next).slice(1));
-              params.set("release", coverage.release_id);
-              history.replaceState(
-                {},
-                "",
-                location.pathname + "?" + params.toString(),
-              );
-            }}
-          />
-        ) : (
-          <div className="map-loading">
-            <LoaderCircle size={24} className="spinner" />
-            <span>Loading published coverage…</span>
-          </div>
-        )}
         <div className="search-workspace">
           <form
             className="search-bar"
@@ -568,6 +619,12 @@ function Workspace() {
               <kbd>⌘ K</kbd>
             )}
             <span className="search-divider" />
+            {boroughMode && (
+              <button type="button" className="search-filter" aria-label="Ask AI"
+                aria-expanded={tool === "ai"} title="Ask AI" onClick={() => toggleTool("ai")}>
+                <Sparkles size={16} />
+              </button>
+            )}
             <button
               type="button"
               className={
@@ -659,62 +716,92 @@ function Workspace() {
             </div>
           )}
         </div>
-        <nav className="tool-rail" aria-label="Map tools">
-          {(
-            [
-              { id: "layers", icon: Layers3, label: "Map layers" },
-              {
-                id: "filters",
-                icon: SlidersHorizontal,
-                label: "Property filters",
-              },
-              { id: "saved", icon: Bookmark, label: "Saved research" },
-              { id: "coverage", icon: Info, label: "Sources and coverage" },
-            ] as const
-          ).map(({ id, icon: Icon, label }) => (
-            <button
-              key={id}
-              aria-label={label}
-              title={label}
-              aria-pressed={tool === id}
-              className={tool === id ? "active" : ""}
-              onClick={() => toggleTool(id)}
-            >
-              <Icon size={19} strokeWidth={1.7} />
-              {id === "filters" && activeFilterCount > 0 && (
-                <span className="rail-dot" />
-              )}
-            </button>
-          ))}
-        </nav>
-        {coverage && areaMoved && (
-          <button
-            className="search-area-button"
-            onClick={() => {
-              const bounds = mapRef.current?.getBounds();
-              if (bounds) {
-                update({ bounds });
-                setHasSearched(true);
-                setResultsOpen(true);
-                setInspectorOpen(false);
-                setTool(null);
-                setAreaMoved(false);
-                setVisibleCount(40);
+      </header>
+      <main
+        className={`map-workspace ${inspectorOpen && expanded ? "detail-open" : ""}`}
+      >
+        {coverage && hydrated ? (
+          <ParcelMap
+            key={coverage.release_id}
+            ref={mapRef}
+            coverage={coverage}
+            selected={state.selected}
+            hovered={hovered}
+            matching={matching}
+            parcels={parcels}
+            boundary={boundary}
+            colored={colored}
+            imagery={imagery}
+            buildings={buildings}
+            initialCamera={state.camera}
+            onSelect={(ids) => {
+              parcelRequest.current?.abort();
+              if (ids.length > 1) setCandidates(ids);
+              else if (boroughMode) {
+                const request = new AbortController();
+                parcelRequest.current = request;
+                getProfile(release, ids[0], request.signal)
+                  .then((p) => {
+                    if (!request.signal.aborted) selectProperty(p, false);
+                  })
+                  .catch((error: Error) => {
+                    if (!request.signal.aborted) setToast(error.message);
+                  });
+              } else {
+                const p = properties.find((p) => p.bbl === ids[0]);
+                if (p) selectProperty(p, false);
               }
             }}
-          >
-            <Search size={14} />
-            Search this area
-          </button>
+            onMove={(b, c) => {
+              setViewBounds(b);
+              setViewZoom(c.zoom);
+              const next = { ...stateRef.current, camera: c };
+              stateRef.current = next;
+              setState(next);
+              const params = new URLSearchParams(publicUrl(next).slice(1));
+              params.set("release", coverage.release_id);
+              history.replaceState(
+                {},
+                "",
+                location.pathname + "?" + params.toString(),
+              );
+            }}
+          />
+        ) : (
+          <div className="map-loading">
+            <LoaderCircle size={24} className="spinner" />
+            <span>Loading published coverage…</span>
+          </div>
         )}
+        <div className="tool-rail">
+          <button
+            aria-label="Map layers"
+            title="Map layers"
+            aria-expanded={tool === "layers"}
+            className={tool === "layers" ? "active" : ""}
+            onClick={() => toggleTool("layers")}
+          >
+            <Layers3 size={19} strokeWidth={1.7} />
+          </button>
+        </div>
         {tool && coverage && (
           <ToolPanel tool={tool} onClose={closeTool}>
-            {tool === "filters" ? (
+            {tool === "ai" ? (
+              <LotSearchAssistant key={state.selected || "all"} bbl={state.selected}
+                release={coverage.release_id} addressLabel={selected ? titleAddress(selected.address) : state.selected}
+                areaActive={!!state.bounds && !!viewBounds} canLimitArea={!!viewBounds}
+                onApply={(q, filters, useMap) => submit(q, filters, useMap ? mapRef.current?.getBounds() ?? null : null)}
+              />
+            ) : tool === "filters" ? (
               <FilterPanel
                 key={JSON.stringify(state.filters)}
                 filters={state.filters}
-                onApply={(f) => {
-                  update({ filters: f });
+                areaActive={!!state.bounds}
+                canLimitArea={!!viewBounds}
+                onApply={(f, area) => {
+                  const bounds = area === "current" ? mapRef.current?.getBounds() ?? null
+                    : area === "keep" ? state.bounds : null;
+                  update({ filters: f, bounds });
                   setHasSearched(true);
                   setResultsOpen(true);
                   setTool(null);
@@ -772,7 +859,7 @@ function Workspace() {
               </button>
             </div>
             <div className="results-controls">
-              <span>Brooklyn pilot area</span>
+              <span>{coverage?.area_name || "Brooklyn"}</span>
               <label>
                 <ArrowDownWideNarrow size={13} />
                 <select
@@ -801,9 +888,8 @@ function Workspace() {
                   <MapPin size={28} />
                   <h3>That area isn’t imported yet</h3>
                   <p>
-                    This pilot covers DUMBO, Brooklyn Heights, and Downtown
-                    Brooklyn. New Jersey and other NYC boroughs are outside this
-                    import.
+                    The current import covers{" "}
+                    {coverage?.area_name || "Brooklyn"}.
                   </p>
                   <button
                     className="primary-button"
@@ -866,14 +952,15 @@ function Workspace() {
                   </button>
                 ))
               )}
-              {visibleCount < search.total && (
-                <button
-                  className="load-more"
-                  onClick={() => setVisibleCount((v) => v + 40)}
-                >
-                  Load 40 more properties
-                </button>
-              )}
+              {visibleCount < search.total &&
+                (!boroughMode || visibleCount < 2000) && (
+                  <button
+                    className="load-more"
+                    onClick={() => setVisibleCount((v) => v + 40)}
+                  >
+                    Load 40 more properties
+                  </button>
+                )}
             </div>
             <div className="results-footer">
               <span className="source-dot" />
@@ -964,33 +1051,16 @@ function Workspace() {
             </button>
           </div>
         )}
-        <div
-          className="basemap-toggle"
-          role="group"
-          aria-label="Map background"
-        >
-          <button
-            aria-pressed={!imagery}
-            className={!imagery ? "active" : ""}
-            onClick={() => setImagery(false)}
-          >
-            Map
-          </button>
-          <button
-            aria-pressed={imagery}
-            className={imagery ? "active" : ""}
-            onClick={() => setImagery(true)}
-          >
-            Imagery
-          </button>
-        </div>
         <div className="map-status">
           <span className="status-dot" />
           <span>
             {coverage
               ? `MapPLUTO ${coverage.source_edition}`
               : "Loading source"}
-            <span className="status-extra"> · Bounded Brooklyn coverage</span>
+            <span className="status-extra">
+              {" "}
+              · {boroughMode ? "Brooklyn coverage" : "Brooklyn pilot coverage"}
+            </span>
           </span>
           <button
             aria-label="View source coverage"

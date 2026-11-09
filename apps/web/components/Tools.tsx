@@ -17,7 +17,8 @@ import {
   titleAddress,
 } from "@/lib/search";
 import { SavedResearch, SourcesContent } from "./Inspector";
-export type Tool = "filters" | "layers" | "saved" | "coverage" | null;
+import { SavedComparison } from "./PropertyComparisons";
+export type Tool = "ai" | "filters" | "layers" | "saved" | "coverage" | null;
 export function ToolPanel({
   tool,
   onClose,
@@ -28,6 +29,7 @@ export function ToolPanel({
   children: React.ReactNode;
 }) {
   const title = {
+    ai: "Ask AI",
     filters: "Property filters",
     layers: "Map layers",
     saved: "Saved research",
@@ -35,7 +37,7 @@ export function ToolPanel({
   }[tool];
   return (
     <section
-      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : ""}`}
+      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : tool === "layers" ? "layers-panel" : ""}`}
       aria-label={title}
     >
       <div className="tool-header">
@@ -54,12 +56,19 @@ export function ToolPanel({
 }
 export function FilterPanel({
   filters,
+  areaActive,
+  canLimitArea,
+  aiReview = false,
   onApply,
 }: {
   filters: Filters;
-  onApply: (f: Filters) => void;
+  areaActive: boolean;
+  canLimitArea: boolean;
+  aiReview?: boolean;
+  onApply: (f: Filters, area: "all" | "keep" | "current") => void;
 }) {
   const [draft, setDraft] = useState(filters);
+  const [area, setArea] = useState<"all" | "keep" | "current">(areaActive ? "keep" : "all");
   const update = (key: keyof Filters, value: unknown) =>
     setDraft((f) => ({ ...f, [key]: value }));
   const ranges: [keyof Filters, keyof Filters, string, string][] = [
@@ -76,10 +85,9 @@ export function FilterPanel({
   return (
     <>
       <div className="tool-scroll">
-        <p className="tool-description">
-          Find properties in the imported Brooklyn area. Filters combine across
-          categories.
-        </p>
+        {!aiReview && <p className="tool-description">
+          Find properties in the imported Brooklyn area. Filters combine across categories.
+        </p>}
         <fieldset className="filter-fieldset">
           <legend>Property use</legend>
           {Object.entries(LAND_USES).map(([id, label]) => (
@@ -185,19 +193,34 @@ export function FilterPanel({
           </p>
         )}
       </div>
+      <div className="filter-area">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            aria-label="Limit to map view"
+            disabled={!canLimitArea && !areaActive}
+            checked={area !== "all"}
+            onChange={(event) => setArea(event.target.checked ? "current" : "all")}
+          />
+          {aiReview ? (area === "all" ? "Search area: All Brooklyn" : "Search area: Current map view") : "Limit to map view"}
+        </label>
+      </div>
       <div className="tool-footer">
         <button
           className="text-button"
-          onClick={() => setDraft(defaultFilters())}
+          onClick={() => {
+            setDraft(defaultFilters());
+            setArea("all");
+          }}
         >
           Reset filters
         </button>
         <button
           className="primary-button"
           disabled={invalid}
-          onClick={() => onApply(draft)}
+          onClick={() => onApply(draft, area)}
         >
-          Apply filters
+          {aiReview ? "Search with these filters" : "Apply filters"}
         </button>
       </div>
     </>
@@ -230,9 +253,14 @@ export function LayersPanel({
 }) {
   return (
     <div className="tool-scroll">
-      <p className="tool-description">
-        Current parcel footprints over a light street map.
-      </p>
+      <div className="map-background-picker" role="group" aria-label="Map background">
+        <button type="button" aria-label="Street map" aria-pressed={!imagery} onClick={() => onImagery(false)}>
+          Street map
+        </button>
+        <button type="button" aria-label="Imagery" aria-pressed={imagery} onClick={() => onImagery(true)}>
+          Imagery · 2024
+        </button>
+      </div>
       <label className="layer-row">
         <div>
           <strong>Parcel boundaries</strong>
@@ -260,7 +288,7 @@ export function LayersPanel({
       <label className="layer-row">
         <div>
           <strong>Import coverage</strong>
-          <span>Bounded Brooklyn pilot area</span>
+          <span>{coverage.area_name}</span>
         </div>
         <input
           role="switch"
@@ -279,18 +307,6 @@ export function LayersPanel({
           type="checkbox"
           checked={buildings}
           onChange={(e) => onBuildings(e.target.checked)}
-        />
-      </label>
-      <label className="layer-row">
-        <div>
-          <strong>Imagery view · 2024</strong>
-          <span>Official NYC OTI imagery; not a live photo</span>
-        </div>
-        <input
-          role="switch"
-          type="checkbox"
-          checked={imagery}
-          onChange={(e) => onImagery(e.target.checked)}
         />
       </label>
       <div className="legend">
@@ -326,9 +342,12 @@ export function SavedPanel({
   onSelect: (p: PropertySummary) => void;
   onExport: () => void;
 }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparing, setComparing] = useState(false);
   const rows = Object.values(saved)
     .map((s) => ({ saved: s, p: properties.find((p) => p.bbl === s.bbl) }))
     .filter((r) => r.p);
+  const comparison = rows.flatMap(({ p }) => p && selected.includes(p.bbl) ? [p] : []);
   return (
     <>
       <div className="tool-scroll">
@@ -339,7 +358,12 @@ export function SavedPanel({
             your notes.
           </p>
         </div>
-        {rows.length === 0 ? (
+        {comparing && comparison.length >= 2 ? (
+          <>
+            <button className="text-button" onClick={() => setComparing(false)}>Back to saved properties</button>
+            <SavedComparison properties={comparison} />
+          </>
+        ) : rows.length === 0 ? (
           <div className="empty-state">
             <Bookmark size={28} />
             <h3>Your research starts here</h3>
@@ -347,6 +371,15 @@ export function SavedPanel({
           </div>
         ) : (
           rows.map(({ saved: s, p }) => (
+            <div className="saved-compare-row" key={s.bbl}>
+            <input
+              type="checkbox"
+              aria-label={`Compare ${titleAddress(p!.address)}`}
+              checked={selected.includes(s.bbl)}
+              disabled={selected.length >= 3 && !selected.includes(s.bbl)}
+              onChange={(event) => setSelected(event.target.checked
+                ? [...selected, s.bbl] : selected.filter((bbl) => bbl !== s.bbl))}
+            />
             <button
               className="saved-row"
               key={s.bbl}
@@ -360,11 +393,13 @@ export function SavedPanel({
               </span>
               <ChevronRight size={16} />
             </button>
+            </div>
           ))
         )}
       </div>
       <div className="tool-footer">
-        <span className="muted-copy">{rows.length} saved properties</span>
+        <button className="primary-button" disabled={comparison.length < 2 || comparing}
+          onClick={() => setComparing(true)}>Compare{comparison.length > 0 ? ` (${comparison.length})` : ""}</button>
         <button
           className="secondary-button"
           onClick={onExport}

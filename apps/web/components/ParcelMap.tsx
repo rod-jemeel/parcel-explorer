@@ -14,7 +14,6 @@ import {
   Minus,
   LocateFixed,
   Compass,
-  Map as MapIcon,
 } from "lucide-react";
 import type { Bounds, Coverage } from "@/lib/model";
 import { AERIAL_TILES } from "./AerialPreview";
@@ -57,7 +56,6 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
   latest.current = props;
   const [ready, setReady] = useState(false);
   const [mapError, setMapError] = useState("");
-  const [zoom, setZoom] = useState(props.initialCamera?.zoom ?? 15.1);
   useImperativeHandle(
     ref,
     () => ({
@@ -336,6 +334,15 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
         },
       });
       setReady(true);
+      if (!initial && latest.current.coverage.storage_format === "sqlite-v1") {
+        m.fitBounds(
+          [
+            [b[0], b[1]],
+            [b[2], b[3]],
+          ],
+          { padding: 36, duration: 0 },
+        );
+      }
     });
     m.on("click", (e) => {
       if (!m.getLayer("parcel-fill")) return;
@@ -368,7 +375,6 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
     m.on("moveend", () => {
       const b = m.getBounds(),
         c = m.getCenter();
-      setZoom(m.getZoom());
       latest.current.onMove(
         [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
         { lng: c.lng, lat: c.lat, zoom: m.getZoom() },
@@ -487,7 +493,7 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
         data-testid="parcel-map"
       />
       {mapError && <div className="map-error">{mapError}</div>}
-      <div className="map-controls">
+      <div className="map-controls" role="group" aria-label="Map navigation">
         <button
           aria-label="Reset map bearing"
           title="Reset north"
@@ -495,14 +501,12 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
         >
           <Compass size={19} />
         </button>
-        <div className="zoom-group">
-          <button aria-label="Zoom in" onClick={() => map.current?.zoomIn()}>
-            <Plus size={20} />
-          </button>
-          <button aria-label="Zoom out" onClick={() => map.current?.zoomOut()}>
-            <Minus size={20} />
-          </button>
-        </div>
+        <button aria-label="Zoom in" onClick={() => map.current?.zoomIn()}>
+          <Plus size={20} />
+        </button>
+        <button aria-label="Zoom out" onClick={() => map.current?.zoomOut()}>
+          <Minus size={20} />
+        </button>
         <button
           aria-label="Zoom to imported coverage"
           title="Imported coverage"
@@ -519,11 +523,6 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
           <LocateFixed size={19} />
         </button>
       </div>
-      {zoom < 13 && (
-        <div className="zoom-hint">
-          <MapIcon size={15} /> Zoom in to see parcel boundaries
-        </div>
-      )}
     </>
   );
 });

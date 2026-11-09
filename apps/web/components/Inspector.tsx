@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -8,19 +8,19 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  Clock3,
   Copy,
   ExternalLink,
   FileText,
   Focus,
+  Hammer,
   Info,
-  Landmark,
   MapPin,
   Share2,
   StickyNote,
   X,
 } from "lucide-react";
 import AerialPreview from "./AerialPreview";
+import { ComparableSales } from "./PropertyComparisons";
 import BuildingDetails from "./BuildingDetails";
 import { getProfile, getHistory } from "@/lib/data";
 import {
@@ -30,6 +30,7 @@ import {
   LAND_USES,
   PropertyProfile,
   PropertySummary,
+  SourceCoverage,
 } from "@/lib/model";
 import {
   formatDate,
@@ -104,209 +105,252 @@ function Fact({
     </div>
   );
 }
+async function copyJobId(job: string, trigger: HTMLButtonElement) {
+  try {
+    await navigator.clipboard.writeText(job);
+    return true;
+  } catch {
+    const field = document.createElement("textarea");
+    field.value = job;
+    field.readOnly = true;
+    field.className = "sr-only";
+    document.body.append(field);
+    field.focus({ preventScroll: true });
+    field.select();
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    } finally {
+      field.remove();
+      trigger.focus({ preventScroll: true });
+    }
+  }
+}
+
 function RecordCard({ record: r }: { record: HistoryRecord }) {
+  const detailsId = useId();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "failed">();
+  const date = r.date || r.recording_date;
   const multi = r.property_bbls.length > 1;
-  return (
-    <article className="record-card">
-      <div className="record-title">
-        <span className={"record-icon " + r.type}>
-          {r.type === "transfer" ? (
-            <ArrowUpRight size={15} />
-          ) : (
-            <FileText size={14} />
-          )}
-        </span>
-        <div>
-          <h4>
-            {r.type === "transfer"
-              ? r.classification === "zero_consideration_transfer"
-                ? "Zero-dollar transfer"
-                : "Reported transfer"
-              : r.type === "permit"
-                ? "Building permit"
-                : DOCUMENT_TYPES[r.document_type || ""] ||
-                  r.document_type ||
-                  "Recorded document"}
-          </h4>
-          <span>{r.date ? formatDate(r.date) : "Event date not supplied"}</span>
-        </div>
-        <span className="record-agency">
-          {r.type === "transfer"
-            ? "DOF"
-            : r.type === "permit"
-              ? "DOB"
-              : "ACRIS"}
-        </span>
-      </div>
-      {r.amount !== null && (
-        <div className="record-amount">
-          <strong>{formatMoney(r.amount)}</strong>
-          <span>
-            {r.type === "transfer"
-              ? "Reported consideration"
-              : "Document amount"}
-          </span>
-        </div>
+  const isTransfer = r.type === "transfer";
+  const isPermit = r.type === "permit";
+  const zeroTransfer = r.classification === "zero_consideration_transfer";
+  const Icon = isTransfer ? ArrowUpRight : isPermit ? Hammer : FileText;
+  const title = isTransfer
+    ? zeroTransfer ? "Zero-dollar transfer" : "Reported transfer"
+    : DOCUMENT_TYPES[r.document_type || ""] || r.document_type || "Recorded document";
+  const job = r.permit_job?.trim();
+  const isDobNow = isPermit && r.source === "dob_now";
+  const permitUrl = job ? r.official_url : "https://www.nyc.gov/site/buildings/dob/find-building-data.page";
+  const metadata = (
+    <span className="record-meta" id={isPermit ? `${detailsId}-meta` : undefined}>
+      {multi && <span>{formatNumber(r.property_bbls.length)} linked lots</span>}
+      {date && <time dateTime={date}>{!r.date && r.recording_date ? "Recorded " : ""}{formatDate(date)}</time>}
+      {r.amount !== null && <span>{formatMoney(r.amount)}{multi ? " · shared" : ""}</span>}
+      {isPermit && r.status && <span>{r.status}</span>}
+    </span>
+  );
+  const body = (
+    <div className="record-body" id={detailsId}>
+      {multi && <p className="record-caution">One filing covers {formatNumber(r.property_bbls.length)} tax lots. Amount applies to the document, with no per-property allocation.</p>}
+      {isTransfer && (
+        <p>{zeroTransfer ? "Reported at $0. Market price unknown." : "Reported consideration. Transaction allocation is unverified."}</p>
       )}
-      {r.recording_date && (
-        <p className="record-meta">
-          Recorded {formatDate(r.recording_date)}
-          {r.date && r.recording_date !== r.date
-            ? " · event date shown above"
-            : ""}
-        </p>
-      )}
+      {r.document_type === "MTGE" && <p>Recorded loan amount. Current balance unknown.</p>}
+      <dl>
+        {r.recording_date && r.recording_date !== date && <>
+          <dt>Recorded</dt><dd>{formatDate(r.recording_date)}</dd>
+        </>}
+        {isPermit && <>
+          <dt>Building ID</dt><dd>{r.bin || "Not supplied"}</dd>
+          {r.work_type && <><dt>Work type</dt><dd>{r.work_type}</dd></>}
+          {r.expiration_date && <><dt>Expires</dt><dd>{formatDate(r.expiration_date)}</dd></>}
+          <dt>System</dt><dd>{isDobNow ? "DOB NOW" : "DOB BIS"}</dd>
+        </>}
+        {r.apartment && <><dt>Unit</dt><dd>{r.apartment}</dd></>}
+        <dt>Source record</dt><dd>{r.source_record_id}</dd>
+        <dt>Date basis</dt><dd>{r.date_basis.replaceAll("_", " ")}</dd>
+        <dt>Association</dt><dd>Exact tax-lot ID</dd>
+        <dt>Release</dt><dd>{r.release_id}</dd>
+      </dl>
       {multi && (
-        <div className="record-caution">
-          <Info size={13} />
-          <span>
-            One document linked to {r.property_bbls.length} properties. Amount
-            is for the document; no per-property allocation.
-          </span>
+        <details className="linked-lots">
+          <summary>View {formatNumber(r.property_bbls.length)} linked tax lots</summary>
+          <p>{r.property_bbls.join(", ")}</p>
+        </details>
+      )}
+      {isDobNow && (
+        <a
+          className="record-link dob-portal-link"
+          href="https://a810-dobnow.nyc.gov/publish/Index.html"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Search DOB NOW by job ID <ExternalLink size={12} />
+        </a>
+      )}
+      {!isPermit && (
+        <a className="record-link" href={r.official_url} target="_blank" rel="noopener noreferrer">
+          {isTransfer ? "DOF sales source" : "Official document"}
+          <ExternalLink size={12} />
+        </a>
+      )}
+    </div>
+  );
+  return (
+    <li className={isPermit ? "timeline-event permit-event" : "timeline-event"}>
+      <span className="timeline-marker" aria-hidden="true"><Icon size={13} /></span>
+      {isPermit && (
+        <div className="permit-heading">
+          <button
+            type="button"
+            className="permit-toggle"
+            aria-label={`Details for permit ${job || r.source_record_id}`}
+            aria-controls={detailsId}
+            aria-describedby={`${detailsId}-meta`}
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            <ChevronDown className="record-chevron" size={15} aria-hidden="true" />
+          </button>
+          {isDobNow ? (
+            <div className="permit-job-actions">
+              <span className="record-title permit-job-title">{job || "Permit details"}</span>
+              {job && (
+                <>
+                  <button
+                    type="button"
+                    className="permit-copy-button"
+                    aria-label={`Copy job ID ${job}`}
+                    title={copyStatus === "copied" ? "Copied" : "Copy job ID"}
+                    onClick={async (event) => {
+                      const copied = await copyJobId(job, event.currentTarget);
+                      setCopyStatus(copied ? "copied" : "failed");
+                    }}
+                  >
+                    {copyStatus === "copied"
+                      ? <Check size={14} aria-hidden="true" />
+                      : <Copy size={14} aria-hidden="true" />}
+                  </button>
+                  <span
+                    className={copyStatus === "failed" ? "permit-copy-status" : "permit-copy-status sr-only"}
+                    role="status"
+                  >
+                    {copyStatus === "copied" ? "Job ID copied" : copyStatus === "failed" ? "Couldn’t copy" : ""}
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <a className="record-title permit-job-link" href={permitUrl} target="_blank" rel="noopener noreferrer">
+              {job || "Permit source"} <ExternalLink size={12} aria-hidden="true" />
+            </a>
+          )}
+          {metadata}
         </div>
       )}
-      {r.type === "transfer" && (
-        <p className="record-note">
-          {r.classification === "zero_consideration_transfer"
-            ? "Zero consideration does not establish an open-market sale."
-            : "Source-row consideration; allocation across any related transaction is unverified."}
-        </p>
+      {isPermit ? (
+        <div className="record-card" hidden={!detailsOpen}>{body}</div>
+      ) : (
+        <details className="record-card">
+          <summary className="record-summary">
+            <span className="record-title">{title}</span>
+            <span className="record-chevron" aria-hidden="true"><ChevronDown size={15} /></span>
+            {metadata}
+          </summary>
+          {body}
+        </details>
       )}
-      {r.document_type === "MTGE" && (
-        <p className="record-note">
-          Recorded obligation. This amount does not establish the current
-          outstanding balance.
-        </p>
-      )}
-      {r.type === "permit" && (
-        <div className="permit-details">
-          <p>
-            Job {r.permit_job || "not supplied"} · BIN {r.bin || "not supplied"}
-          </p>
-          <p>
-            Source status: <strong>{r.status || "not supplied"}</strong>
-          </p>
-          {r.work_type && <p>Reported work type: {r.work_type}</p>}
-          <small>
-            Current source observation; historical status changes are not
-            reconstructed.
-          </small>
-        </div>
-      )}
-      {r.apartment && (
-        <p className="record-meta">Source apartment / unit: {r.apartment}</p>
-      )}
-      <a
-        className="record-link"
-        href={r.official_url}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {r.type === "document"
-          ? "View official document"
-          : r.type === "permit"
-            ? "View official permit source"
-            : "View DOF sales source"}
-        <ExternalLink size={12} />
-      </a>
-      <details className="evidence">
-        <summary>Record evidence</summary>
-        <dl>
-          <dt>Source record</dt>
-          <dd>{r.source_record_id}</dd>
-          <dt>Date basis</dt>
-          <dd>{r.date_basis.replaceAll("_", " ")}</dd>
-          <dt>Association</dt>
-          <dd>Exact BBL</dd>
-          <dt>Release</dt>
-          <dd>{r.release_id}</dd>
-        </dl>
-        {multi && <p>Associated BBLs: {r.property_bbls.join(", ")}</p>}
-      </details>
-    </article>
+    </li>
   );
 }
+
+function RecordTimeline({ records }: { records: HistoryRecord[] }) {
+  const groups = new Map<string, HistoryRecord[]>();
+  for (const record of records) {
+    const year = (record.date || record.recording_date)?.slice(0, 4) || "Undated";
+    const group = groups.get(year);
+    if (group) group.push(record);
+    else groups.set(year, [record]);
+  }
+  return Array.from(groups, ([year, entries]) => (
+    <section className="timeline-year" key={year} aria-label={year}>
+      <h4>{year}</h4>
+      <ol className="timeline-events">
+        {entries.map((record) => <RecordCard key={record.id} record={record} />)}
+      </ol>
+    </section>
+  ));
+}
+const sourceStatuses: Record<string, string> = {
+  imported: "Imported",
+  partial: "Partial",
+  bounded: "Bounded",
+  available: "Available",
+  not_imported: "Not imported",
+};
+
+function SourceRow({ source }: { source: SourceCoverage }) {
+  return (
+    <li className="source-entry">
+      <details>
+        <summary>
+          <span className="source-name">{source.name}</span>
+          <span className="source-status" data-status={source.status}>
+            {sourceStatuses[source.status] || source.status}
+          </span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </summary>
+        <div className="source-detail">
+          {source.agency && <p>{source.agency}</p>}
+          {source.source_edition && <p>Edition {source.source_edition}</p>}
+          {source.source_updated_at && <p>Updated {formatDate(source.source_updated_at)}</p>}
+          {source.imported_from && (
+            <p>{formatDate(source.imported_from)} – {formatDate(source.through)}
+              {source.date_basis && <small>{source.date_basis.replaceAll("_", " ")}</small>}
+            </p>
+          )}
+          <p>{source.note}</p>
+          {source.url && (
+            <a href={source.url} target="_blank" rel="noopener noreferrer">
+              Official source <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+      </details>
+    </li>
+  );
+}
+
 export function SourcesContent({ coverage }: { coverage: Coverage }) {
   return (
     <div className="sources-content">
       <div className="coverage-intro">
-        <span className="status-dot" />
-        <div>
-          <strong>Bounded, source-backed pilot</strong>
-          <p>{coverage.area_name}</p>
-        </div>
+        <h3>Data sources</h3>
+        <span>{coverage.area_name}</span>
       </div>
-      <dl className="release-facts">
-        <div>
-          <dt>Data release</dt>
-          <dd>{coverage.release_id}</dd>
-        </div>
-        <div>
-          <dt>Imported</dt>
-          <dd>{formatDate(coverage.fetched_at)}</dd>
-        </div>
-        <div>
-          <dt>Map footprints</dt>
-          <dd>{formatNumber(coverage.feature_count)}</dd>
-        </div>
-        <div>
-          <dt>Linked historical records</dt>
-          <dd>{formatNumber(coverage.record_count)}</dd>
-        </div>
-      </dl>
-      {coverage.sources.map((s) => (
-        <article className="source-entry" key={s.id}>
-          <div className="source-entry-title">
-            <Landmark size={16} />
-            <h4>{s.name}</h4>
-          </div>
-          <span
-            className={
-              "status-badge " + (s.status === "not_imported" ? "muted" : "")
-            }
-          >
-            {s.status === "partial"
-              ? "Partial import"
-              : s.status === "bounded"
-                ? "Bounded import"
-                : "Not imported"}
-          </span>
-          <p>{s.agency}</p>
-          {s.source_edition && <p>Source edition {s.source_edition}</p>}
-          {s.source_updated_at && (
-            <p>Source updated {formatDate(s.source_updated_at)}</p>
-          )}
-          {s.imported_from && (
-            <p>
-              {formatDate(s.imported_from)} – {formatDate(s.through)}
-              <br />
-              <small>Basis: {s.date_basis?.replaceAll("_", " ")}</small>
-            </p>
-          )}
-          <p className="source-note">{s.note}</p>
-          {s.url && (
-            <a href={s.url} target="_blank" rel="noopener noreferrer">
-              Official source
-              <ExternalLink size={12} />
-            </a>
-          )}
-        </article>
-      ))}
-      <div className="coverage-warning">
-        <Info size={16} />
-        <div>
-          <strong>Know the gaps</strong>
-          {coverage.limitations.map((l) => (
-            <p key={l}>{l}</p>
-          ))}
-        </div>
-      </div>
+      <ul className="source-list">
+        {coverage.sources.map((source) => <SourceRow key={source.id} source={source} />)}
+      </ul>
+      <details className="coverage-details">
+        <summary>Coverage & release <ChevronDown size={14} aria-hidden="true" /></summary>
+        <dl className="release-facts">
+          <div><dt>Data release</dt><dd>{coverage.release_id}</dd></div>
+          <div><dt>Imported</dt><dd>{formatDate(coverage.fetched_at)}</dd></div>
+          <div><dt>Map footprints</dt><dd>{formatNumber(coverage.feature_count)}</dd></div>
+          <div><dt>Linked records</dt><dd>{formatNumber(coverage.record_count)}</dd></div>
+        </dl>
+        <ul>
+          {coverage.limitations.map((limit) => <li key={limit}>{limit}</li>)}
+        </ul>
+      </details>
     </div>
   );
 }
 export default function Inspector(p: Props) {
   const [tab, setTab] = useState<Tab>("Overview");
-  const [eventType, setEventType] = useState("all");
   const [notesOpen, setNotesOpen] = useState(false);
   const [draft, setDraft] = useState(p.saved?.note || "");
   const [noteDirty, setNoteDirty] = useState(false);
@@ -324,7 +368,6 @@ export default function Inspector(p: Props) {
   });
   useEffect(() => {
     setTab("Overview");
-    setEventType("all");
     setNotesOpen(false);
     setDraft(p.saved?.note || "");
     setNoteDirty(false);
@@ -332,7 +375,7 @@ export default function Inspector(p: Props) {
   const property: PropertySummary | PropertyProfile = data || p.summary;
   const isHistory = ["History", "Transfers", "Permits"].includes(tab);
   const historyKind =
-    tab === "Transfers" ? "transfer" : tab === "Permits" ? "permit" : eventType;
+    tab === "Transfers" ? "transfer" : tab === "Permits" ? "permit" : "document";
   const historyQuery = useInfiniteQuery({
     queryKey: ["history", p.coverage.release_id, p.summary.bbl, historyKind],
     queryFn: ({ pageParam, signal }) =>
@@ -348,7 +391,7 @@ export default function Inspector(p: Props) {
     enabled: p.expanded && isHistory,
     staleTime: Infinity,
   });
-  const history = historyQuery.data?.pages.flatMap((page) => page.events) || [];
+  const records = historyQuery.data?.pages.flatMap((page) => page.events) || [];
   const error =
     profileError ||
     (isHistory && !historyQuery.isFetchNextPageError
@@ -356,14 +399,6 @@ export default function Inspector(p: Props) {
       : null);
   const isPending = profilePending || (isHistory && historyQuery.isPending);
   const totalRecords = historyQuery.data?.pages[0]?.total ?? 0;
-  const records =
-    tab === "Transfers"
-      ? history.filter((r) => r.type === "transfer")
-      : tab === "Permits"
-        ? history.filter((r) => r.type === "permit")
-        : history.filter((r) => eventType === "all" || r.type === eventType);
-  const dated = records.filter((r) => r.date);
-  const undated = records.filter((r) => !r.date);
   return (
     <aside
       className={`inspector ${p.expanded ? "expanded" : "compact"} ${mobileFull ? "mobile-full" : ""}`}
@@ -406,6 +441,19 @@ export default function Inspector(p: Props) {
                 fill={p.saved?.bookmarked ? "currentColor" : "none"}
               />
             </button>
+            {p.expanded && (
+              <button
+                className="icon-button"
+                aria-label="Collapse details to summary"
+                title="Collapse details"
+                onClick={() => {
+                  setMobileFull(false);
+                  p.onCollapse();
+                }}
+              >
+                <ChevronDown size={17} />
+              </button>
+            )}
             <button
               className="icon-button"
               onClick={p.onClose}
@@ -483,16 +531,19 @@ export default function Inspector(p: Props) {
                 role="tab"
                 aria-selected={tab === t}
                 className={tab === t ? "active" : ""}
+                aria-label={t === "Sources" ? "Sources" : undefined}
+                title={t === "Sources" ? "Sources" : undefined}
+                data-icon-tab={t === "Sources" ? "" : undefined}
                 onClick={() => setTab(t)}
               >
-                {t}
-                {t === "History" && property.record_count > 0 && (
-                  <span>{property.record_count}</span>
+                {t === "Sources" ? <Info size={16} aria-hidden="true" /> : t}
+                {t === "History" && !!property.history_counts?.document && (
+                  <span>{property.history_counts.document}</span>
                 )}
               </button>
             ))}
           </nav>
-          <div className="inspector-scroll" role="tabpanel" aria-label={tab}>
+          <div className="inspector-scroll" key={tab} role="tabpanel" aria-label={tab}>
             {error ? (
               <div className="empty-state">
                 <Info size={25} />
@@ -589,7 +640,7 @@ export default function Inspector(p: Props) {
                 {data && <BuildingDetails property={data} />}
                 <section className="detail-section">
                   <div className="section-heading">
-                    <h3>Assessment observation</h3>
+                    <h3>Assessed value</h3>
                     <button
                       className="text-button"
                       onClick={() => setTab("Assessment")}
@@ -601,11 +652,7 @@ export default function Inspector(p: Props) {
                   <strong className="assessment-number">
                     {formatMoney(property.assess_total)}
                   </strong>
-                  <p className="muted-copy">
-                    Total assessed amount for land and improvements in MapPLUTO{" "}
-                    {property.source_edition}. Tax year not supplied; this is
-                    not a tax bill or market valuation.
-                  </p>
+                  <p className="muted-copy">Land and improvements · MapPLUTO {property.source_edition}</p>
                 </section>
                 <section className="detail-section">
                   <div className="section-heading">
@@ -614,7 +661,7 @@ export default function Inspector(p: Props) {
                       className="text-button"
                       onClick={() => setTab("History")}
                     >
-                      Open history
+                      Recorded documents
                       <ArrowUpRight size={13} />
                     </button>
                   </div>
@@ -628,8 +675,7 @@ export default function Inspector(p: Props) {
                     <span className="partial-label">Partial history</span>
                   </div>
                   <p className="muted-copy">
-                    Absence from this bounded import does not establish absence
-                    of historical records.
+                    Browse recorded documents, sales, and permits in their tabs.
                   </p>
                 </section>
                 <section className="detail-section identifiers">
@@ -672,87 +718,35 @@ export default function Inspector(p: Props) {
               tab === "Permits" ? (
               <>
                 <div className="history-intro">
-                  <h3>
-                    {tab === "Transfers"
-                      ? "Sales & transfers"
-                      : tab === "Permits"
-                        ? "Building permits"
-                        : "Available record history"}
-                  </h3>
-                  <p>
-                    Records linked by exact BBL. Current parcel geometry is
-                    shown; historical boundaries are not imported.
-                  </p>
+                  <h3>{tab === "Transfers" ? "Sales & transfers" : tab === "Permits" ? "Building permits" : "Recorded documents"}</h3>
+                  <button className="text-button" onClick={() => setTab("Sources")}>Coverage <Info size={13} /></button>
                 </div>
-                {data?.backfill && (
-                  <div className="property-backfill">
-                    <strong>Historical metadata backfill for this BBL</strong>
-                    <p>
-                      {data.backfill.document_count} linked documents;{" "}
-                      {formatDate(data.backfill.imported_from)} –{" "}
-                      {formatDate(data.backfill.through)} by recording date.
-                    </p>
+                {tab === "History" && data?.backfill && (
+                  <details className="history-backfill">
+                    <summary>Earlier ACRIS records</summary>
+                    <p>{data.backfill.document_count} documents recorded {formatDate(data.backfill.imported_from)} – {formatDate(data.backfill.through)}.</p>
                     <p>{data.backfill.note}</p>
-                  </div>
+                  </details>
                 )}
                 <div className="history-toolbar">
-                  <span>{totalRecords} imported records</span>
-                  {tab === "History" && (
-                    <select
-                      aria-label="Filter record type"
-                      value={eventType}
-                      onChange={(e) => setEventType(e.target.value)}
-                    >
-                      <option value="all">All record types</option>
-                      <option value="document">Documents</option>
-                      <option value="transfer">Transfers</option>
-                      <option value="permit">Permits</option>
-                    </select>
-                  )}
-                </div>
-                <div className="history-coverage">
-                  <Clock3 size={14} />
-                  <p>
-                    Partial import. ACRIS uses a bounded document sample and
-                    identified older backfills. DOF uses rolling sales; DOB
-                    records are current permit observations.{" "}
-                    <button onClick={() => setTab("Sources")}>
-                      View exact coverage
-                    </button>
-                  </p>
+                  <span>{totalRecords} {totalRecords === 1 ? "record" : "records"}</span>
                 </div>
                 {records.length === 0 ? (
                   <div className="empty-state">
                     <FileText size={28} />
-                    <h3>No linked records imported</h3>
-                    <p>
-                      This does not mean no records exist. Continue research
-                      through the official ACRIS portal.
-                    </p>
+                    <h3>No {tab === "Permits" ? "permits" : tab === "Transfers" ? "transfers" : "matching records"} imported</h3>
                     <a
-                      href="https://a836-acris.nyc.gov/CP/"
+                      href={tab === "Permits" ? "https://www.nyc.gov/site/buildings/dob/building-applications-permits.page" : tab === "Transfers" ? "https://www.nyc.gov/site/finance/property/property-rolling-sales-data.page" : "https://a836-acris.nyc.gov/CP/"}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      Open ACRIS
+                      {tab === "Permits" ? "Search DOB" : tab === "Transfers" ? "Open DOF sales" : "Search ACRIS"}
                       <ExternalLink size={13} />
                     </a>
                   </div>
                 ) : (
                   <div className="timeline">
-                    {dated.map((r) => (
-                      <RecordCard key={r.id} record={r} />
-                    ))}
-                    {undated.length > 0 && (
-                      <>
-                        <h3 className="undated-heading">
-                          Undated event records
-                        </h3>
-                        {undated.map((r) => (
-                          <RecordCard key={r.id} record={r} />
-                        ))}
-                      </>
-                    )}
+                    <RecordTimeline records={records} />
                     {historyQuery.hasNextPage && (
                       <button
                         className="load-more"
@@ -768,52 +762,34 @@ export default function Inspector(p: Props) {
                 )}
               </>
             ) : tab === "Assessment" ? (
-              <>
-                <section className="detail-section">
-                  <h3>Source-observed assessment</h3>
-                  <p className="muted-copy">
-                    MapPLUTO {property.source_edition} snapshot. The source does
-                    not supply an assessment tax year here.
-                  </p>
-                  <dl className="assessment-list">
-                    <div>
-                      <dt>Total assessed amount · land + improvements</dt>
-                      <dd>{formatMoney(property.assess_total)}</dd>
-                    </div>
-                    <div>
-                      <dt>Assessed land amount</dt>
-                      <dd>{formatMoney(data?.assess_land)}</dd>
-                    </div>
-                    <div>
-                      <dt>Assessed buildings / improvements · calculated</dt>
-                      <dd>{formatMoney(data?.assess_improvements)}</dd>
-                    </div>
-                  </dl>
-                  <p className="muted-copy">
-                    Improvements = total assessed amount minus assessed land
-                    amount. The total already includes these improvements; they
-                    are not added a second time. This is a lot-level assessment,
-                    with no official allocation to each building.
-                  </p>
-                  <SourceLabel
-                    edition={property.source_edition}
-                    onClick={() => setTab("Sources")}
-                  />
-                </section>
-                <div className="coverage-warning">
-                  <Info size={16} />
+              <section className="detail-section assessment-section">
+                <h3>Assessed value</h3>
+                <dl className="assessment-list">
                   <div>
-                    <strong>Snapshot observation</strong>
-                    <p>
-                      These amounts are not market valuations, actual tax bills,
-                      or a complete annual tax-roll history. No annual
-                      assessment comparison has been imported.
-                    </p>
+                    <dt>Total · land + improvements</dt>
+                    <dd>{formatMoney(property.assess_total)}</dd>
                   </div>
-                </div>
-              </>
+                  <div>
+                    <dt>Land</dt>
+                    <dd>{formatMoney(data?.assess_land)}</dd>
+                  </div>
+                  <div>
+                    <dt>Improvements</dt>
+                    <dd>{formatMoney(data?.assess_improvements)}</dd>
+                  </div>
+                </dl>
+                <details className="assessment-method">
+                  <summary><Info size={14} /> About these figures <ChevronDown size={14} /></summary>
+                  <p>Improvements are calculated as total minus land for the whole lot.</p>
+                  <p>MapPLUTO assessment snapshot. Tax year, market value, and tax bill are unavailable here.</p>
+                </details>
+                <SourceLabel edition={property.source_edition} onClick={() => setTab("Sources")} />
+              </section>
             ) : (
               <SourcesContent coverage={p.coverage} />
+            )}
+            {tab === "Transfers" && p.coverage.storage_format === "sqlite-v1" && (
+              <ComparableSales property={property} />
             )}
             <section className="notes-section">
               <button
@@ -862,19 +838,6 @@ export default function Inspector(p: Props) {
                 </div>
               )}
             </section>
-          </div>
-          <div className="inspector-footer">
-            <span className="source-dot" />
-            Government records · Partial coverage
-            <button
-              aria-label="Collapse details to summary"
-              onClick={() => {
-                setMobileFull(false);
-                p.onCollapse();
-              }}
-            >
-              <ChevronDown size={13} />
-            </button>
           </div>
         </>
       )}
