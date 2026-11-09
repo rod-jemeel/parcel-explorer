@@ -8,9 +8,11 @@ Parcel Explorer is a local-first workspace for researching Brooklyn tax lots. Se
 
 **Status:** Working local pilot for Brooklyn. The data reflects imported snapshots, with coverage dates and gaps shown in the app.
 
-[Run locally](#run-locally) · [Data coverage](#data-coverage) · [Verification](#verification)
+[Watch the demo](docs/media/walkthrough.mp4) · [Run locally](#run-locally) · [Data coverage](#data-coverage) · [Verification](#verification)
 
-![Parcel Explorer aerial map and property inspector for 93 Remsen Street](docs/screenshots/parcel-map.png)
+[![Watch the Parcel Explorer walkthrough](docs/screenshots/parcel-map.png)](docs/media/walkthrough.mp4)
+
+*25-second walkthrough of the parcel map, recorded documents, permits, assessments, saved comparisons, and the Ask AI panel.*
 
 ## The research workflow
 
