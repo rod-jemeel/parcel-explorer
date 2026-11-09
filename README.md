@@ -12,11 +12,21 @@ Parcel Explorer is a local-first workspace for researching Brooklyn tax lots. Se
 
 ## Demo
 
+### AI lot search
+
+https://github.com/user-attachments/assets/81019ef5-f9d2-4259-9dca-a243856e7ed6
+
+A live Ask AI search for vacant Brooklyn lots. Review the suggested filters, raise the minimum lot area from 1,500 to 2,000 sq ft, and limit the search to the current map view. The search returns 19 matching parcels.
+
+[Download the AI search walkthrough](docs/media/ai-search-walkthrough.mp4)
+
+### Parcel research
+
 https://github.com/user-attachments/assets/6ffcc059-b767-4511-8626-672c37851ee7
 
 [Download the MP4](docs/media/walkthrough.mp4)
 
-*25-second walkthrough of the parcel map, recorded documents, permits, assessments, saved comparisons, and the Ask AI panel.*
+*25-second walkthrough of the parcel map, recorded documents, permits, assessments, and saved comparisons.*
 
 ## The research workflow
 
