@@ -1,0 +1,21 @@
+{
+  "name": "parcel-explorer",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "node scripts/sync-map-worker.mjs && npm run dev --workspace apps/web",
+    "build": "node scripts/sync-map-worker.mjs && npm run build --workspace apps/web",
+    "test": "tsx --test tests/search.test.ts",
+    "tiles": "node scripts/build-tiles.mjs",
+    "typecheck": "npm run typecheck --workspace apps/web"
+  },
+  "devDependencies": {
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "@types/node": "24.10.1",
+    "geojson-vt": "4.0.2",
+    "vt-pbf": "3.1.3"
+  }
+}
