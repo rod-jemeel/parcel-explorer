@@ -8,9 +8,13 @@ Parcel Explorer is a local-first workspace for researching Brooklyn tax lots. Se
 
 **Status:** Working local pilot for Brooklyn. The data reflects imported snapshots, with coverage dates and gaps shown in the app.
 
-[Watch the demo](docs/media/walkthrough.mp4) · [Run locally](#run-locally) · [Data coverage](#data-coverage) · [Verification](#verification)
+[Watch the demo](#demo) · [Run locally](#run-locally) · [Data coverage](#data-coverage) · [Verification](#verification)
 
-[![Watch the Parcel Explorer walkthrough](docs/screenshots/parcel-map.png)](docs/media/walkthrough.mp4)
+## Demo
+
+https://github.com/user-attachments/assets/6ffcc059-b767-4511-8626-672c37851ee7
+
+[Download the MP4](docs/media/walkthrough.mp4)
 
 *25-second walkthrough of the parcel map, recorded documents, permits, assessments, saved comparisons, and the Ask AI panel.*
 
