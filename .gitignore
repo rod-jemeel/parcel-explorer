@@ -8,6 +8,8 @@ data/releases/
 data/retired-static-releases/
 data/retired-build-assets/
 data/candidate.json
+data/brooklyn-stage/
+data/brooklyn-deps/
 apps/web/public/data/
 apps/web/public/vendor/
 *.tsbuildinfo
@@ -17,3 +19,4 @@ __pycache__/
 *.sqlite*
 work/
 
+data/assistant-host.txt

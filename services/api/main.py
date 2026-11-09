@@ -5,15 +5,18 @@ It has no user-data or admin writes and must not be exposed as a hosted API.
 """
 from __future__ import annotations
 import base64
+from contextlib import closing
 from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
 import re
+import sqlite3
 from typing import Annotated
 from fastapi import FastAPI, HTTPException, Query, Path as APIPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from services.api import brooklyn
 
 ROOT=Path(__file__).resolve().parents[2]
 DEFAULT_DATA=ROOT/'apps'/'web'/'public'/'data'
@@ -28,7 +31,7 @@ def cursor_offset(cursor,scope):
     if not cursor:return 0
     try:
         value=json.loads(base64.urlsafe_b64decode(cursor+'='*((-len(cursor))%4)))
-        if value['scope']!=scope or type(value['offset']) is not int or not 0<=value['offset']<=100000:raise ValueError()
+        if value['scope']!=scope or type(value['offset']) is not int or not 0<=value['offset']<=1000000:raise ValueError()
         return value['offset']
     except Exception:raise HTTPException(400,detail={'code':'cursor_scope_mismatch','message':'Cursor must match the exact query and release.'})
 
@@ -58,8 +61,25 @@ def create_app(data_root:Path=DEFAULT_DATA):
     @lru_cache(maxsize=4)
     def index_for(path):return read(path/'index.json')
 
+    def database(release):
+        path = ROOT/'data'/'releases'/release/'brooklyn.sqlite'
+        if not path.is_file():
+            raise HTTPException(503, detail={'code': 'release_database_unavailable'})
+        return closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True))
+
     def get_property(identifier,release):
         path=release_path(release)
+        if coverage().get('storage_format') == 'sqlite-v1':
+            with database(release) as db:
+                bbl = identifier
+                if not brooklyn.BBL.fullmatch(bbl):
+                    row = db.execute("SELECT bbl FROM parcel WHERE json_extract(payload,'$.id')=?",
+                                     (identifier,)).fetchone()
+                    bbl = row[0] if row else ''
+                result = brooklyn.property_profile(db, bbl)
+            if result is None:
+                raise HTTPException(404, detail={'code':'property_not_imported'})
+            return result
         summary=next((p for p in index_for(path) if p['bbl']==identifier or p['id']==identifier),None)
         if summary is None:raise HTTPException(404,detail={'code':'property_not_imported'})
         return read(path/'profiles'/(summary['bbl']+'.json'))
@@ -89,6 +109,18 @@ def create_app(data_root:Path=DEFAULT_DATA):
         if any(lo is not None and hi is not None and lo>hi for _,lo,hi in ranges):raise HTTPException(422,detail={'code':'inverted_range'})
         state={'q':q.strip(),'uses':use_list,'ranges':ranges,'bounds':box,'has_records':has_records,'include_unknown':include_unknown,'sort':sort,'release_id':release_id}
         scope=fingerprint(state);offset=cursor_offset(cursor,scope)
+        if coverage().get('storage_format') == 'sqlite-v1':
+            filters = dict(zip(('minLot','maxLot','minYear','maxYear','minAssessment','maxAssessment'),
+                               (min_lot,max_lot,min_year,max_year,min_assessment,max_assessment)))
+            filters.update(uses=use_list, hasRecords=has_records, includeUnknown=include_unknown)
+            query = {'q':[q], 'filters':[json.dumps(filters)], 'bounds':[bounds or ''],
+                     'sort':[sort], 'limit':[str(limit)], 'offset':[str(offset)]}
+            with database(release_id) as db:
+                result = brooklyn.search(db, query)
+            return {'release_id':release_id,'query_fingerprint':scope,'applied_state':state,
+                    'total':result['total'],'count_kind':'exact_imported_entities','footprint_count':result['total'],
+                    'coverage_status':result['status'], 'results':result['results'],
+                    'next_cursor':cursor_encode(offset+limit,scope) if offset+limit<result['total'] else None}
         unsupported=bool(re.search(r'\b(new jersey|jersey city|hudson|manhattan|queens|bronx|staten island|hoboken|newark|albany)\b',q,re.I))
         is_place=q.lower().strip() in ('brooklyn','kings county','brooklyn ny','brooklyn, ny','dumbo','brooklyn heights','downtown brooklyn')
         clean=lambda s:' '.join(re.sub(r'[.,]',' ',s.upper()).split())
@@ -122,6 +154,10 @@ def create_app(data_root:Path=DEFAULT_DATA):
     @app.get('/api/v1/search/suggestions')
     def suggestions(release_id:str,q:Annotated[str,Query(max_length=200)]=''):
         path=release_path(release_id);query=q.upper().strip()
+        if coverage().get('storage_format') == 'sqlite-v1':
+            with database(release_id) as db:
+                result = brooklyn.search(db, {'q':[q], 'limit':['8']})
+            return {'release_id':release_id,'results':[{'type':'property',**p} for p in result['results']]}
         rows=[p for p in index_for(path) if p['bbl']==query or query in p['address'].upper()]
         rows.sort(key=lambda p:(p['bbl']!=query,p['address']!=query,p['address']))
         return {'release_id':release_id,'results':[{'type':'property',**p} for p in rows[:8]]}
@@ -134,6 +170,12 @@ def create_app(data_root:Path=DEFAULT_DATA):
     @app.get('/api/v1/properties/{identifier}/history')
     def history(identifier:str,release_id:str,limit:Annotated[int,Query(ge=1,le=100)]=40,cursor:Annotated[str|None,Query(max_length=400)]=None):
         p=get_property(identifier,release_id);scope=fingerprint([release_id,p['bbl'],'history']);offset=cursor_offset(cursor,scope)
+        if coverage().get('storage_format') == 'sqlite-v1':
+            with database(release_id) as db:
+                result = brooklyn.history(db,release_id,p['bbl'],'all',0,limit=limit,offset=offset)
+            return {'release_id':release_id,'events':result['events'],'total':result['total'],
+                    'coverage_status':'partial',
+                    'next_cursor':cursor_encode(offset+limit,scope) if offset+limit<result['total'] else None}
         if p.get('record_count')==0:
             return {'release_id':release_id,'events':[],'total':0,'coverage_status':'partial','next_cursor':None}
         directory=release_path(release_id)/'history'/p['bbl']/'all'
