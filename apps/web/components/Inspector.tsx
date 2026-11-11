@@ -19,6 +19,7 @@ import {
   StickyNote,
   X,
 } from "lucide-react";
+import PlanningApplications from "./PlanningApplications";
 import AerialPreview from "./AerialPreview";
 import { ComparableSales } from "./PropertyComparisons";
 import BuildingDetails from "./BuildingDetails";
@@ -678,6 +679,7 @@ export default function Inspector(p: Props) {
                     Browse recorded documents, sales, and permits in their tabs.
                   </p>
                 </section>
+                <PlanningApplications bbl={property.bbl} />
                 <section className="detail-section identifiers">
                   <h3>Official identifiers</h3>
                   <dl className="release-facts">

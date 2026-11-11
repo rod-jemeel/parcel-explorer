@@ -2742,3 +2742,18 @@ a {
   box-shadow: var(--shadow);
 }
 .ai-connection-settings .text-button { margin-top: 7px; }
+
+.planning-applications {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+
+.planning-applications li {
+  border-top: 1px solid var(--border, #dbe4ea);
+  padding: 12px 0;
+}
+
+.planning-applications li p {
+  margin: 4px 0;
+}

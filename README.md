@@ -139,3 +139,9 @@ The browser smoke test uses an isolated session. Live ChatGPT eligibility depend
 | `scripts` | Tile builder and loopback app launcher |
 | `tests` | Backend, search, and browser checks |
 | `docs` | Product specification, source register, and screenshots |
+
+### Brooklyn planning applications
+
+Open **Planning applications** in a parcel's **Overview** to see projects linked by validated NYC tax lot ID, along with the published status, milestone, and ULURP reference when available. The snapshot covers linked projects in the [ZAP project feed](https://data.cityofnewyork.us/d/hgx4-8ukb) and [ZAP tax lot feed](https://data.cityofnewyork.us/d/2iga-a6mk). Project boundaries, construction status, and transit or capital projects are outside this snapshot.
+
+Refresh with `python scripts/import_brooklyn_planning.py`, then rebuild the local app with `npm run build`.
