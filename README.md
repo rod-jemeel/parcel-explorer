@@ -20,6 +20,9 @@ Select two Brooklyn lots, read a live permit comparison in Ask AI, and open one 
 
 [Download the two-lot comparison walkthrough](docs/media/two-lot-comparison.mp4)
 
+<details>
+<summary>Archived walkthroughs with earlier interface layouts</summary>
+
 ### Planning applications and multi-lot chat
 
 https://github.com/user-attachments/assets/9352a9c0-1036-4e7c-a60b-18a0969bf938
@@ -43,6 +46,8 @@ https://github.com/user-attachments/assets/6ffcc059-b767-4511-8626-672c37851ee7
 [Download the MP4](docs/media/walkthrough.mp4)
 
 *25-second walkthrough of the parcel map, recorded documents, permits, assessments, and saved comparisons.*
+
+</details>
 
 ## The research workflow
 
