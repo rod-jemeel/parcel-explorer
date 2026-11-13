@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { Settings } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArrowUp, Ellipsis, Plus, X } from "lucide-react";
 import { defaultFilters, Filters } from "@/lib/search";
 import { FilterPanel } from "./Tools";
 
 type Plan = { q: string; filters: Partial<Filters>; limits: string[] };
 type Answer = { kind: "answer"; answer: string; sources: { id: number; label: string; url: string }[] };
+type Reply = Answer | (Plan & { kind: "search" });
+export type ParcelMention = { bbl: string; label: string };
+type Turn = { mentions?: ParcelMention[]; question: string; bbl: string | null; parcelLabel?: string | null; result: Reply };
+type Chat = { id: string; turns: Turn[] };
+type ChatState = { active: string; sessions: Chat[] };
+
+const chatStorageKey = "parcel-explorer:ai-chats:v1";
+
 type Mode = "disconnected" | "chatgpt" | "api";
 
 async function request<T>(action: string, body?: object): Promise<T> {
@@ -21,19 +29,26 @@ async function request<T>(action: string, body?: object): Promise<T> {
   return result;
 }
 
-export default function LotSearchAssistant({ onApply, areaActive, canLimitArea, bbl, release, addressLabel }: {
+export default function LotSearchAssistant({ onApply, areaActive, canLimitArea, bbl, release, mentions, onRemoveMention, onClose }: {
   onApply: (q: string, filters: Filters, useMap: boolean) => void;
   bbl: string | null;
   release: string;
-  addressLabel: string | null;
+  mentions: ParcelMention[];
+  onRemoveMention: (bbl: string) => void;
+  onClose: () => void;
   areaActive: boolean;
   canLimitArea: boolean;
 }) {
   const inputId = useId();
+  const menu = useRef<HTMLDetailsElement>(null);
   const [mode, setMode] = useState<Mode>();
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<{ question: string; result: Answer }[]>([]);
-  const [previous, setPrevious] = useState("");
+  const [chats, setChats] = useState<ChatState>({ active: "", sessions: [] });
+  const [storageReady, setStorageReady] = useState(false);
+  const endOfChat = useRef<HTMLDivElement>(null);
+  const chat = chats.sessions.find((item) => item.id === chats.active);
+  const turns = chat?.turns;
+
   const [plan, setPlan] = useState<Plan>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,21 +63,73 @@ export default function LotSearchAssistant({ onApply, areaActive, canLimitArea, 
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(chatStorageKey);
+      if (saved) {
+        const state = JSON.parse(saved) as ChatState;
+        if (Array.isArray(state.sessions) && typeof state.active === "string") setChats(state);
+      }
+    } catch {
+      // Chat still works when browser storage is unavailable.
+    }
+    setStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    try {
+      localStorage.setItem(chatStorageKey, JSON.stringify(chats));
+    } catch {
+      // Keep the current chat usable if the storage quota is exceeded.
+    }
+  }, [chats, storageReady]);
+
+  useEffect(() => {
+    const end = endOfChat.current;
+    if (end?.parentElement) end.parentElement.scrollTop = end.parentElement.scrollHeight;
+  }, [turns, busy, plan]);
+
+  function switchChat(id: string) {
+    if (menu.current) menu.current.open = false;
+    setChats((state) => ({ ...state, active: id }));
+    setQuestion("");
+    setError("");
+    setPlan(undefined);
+  }
+
+  function reviewPlan(result: Plan) {
+    setAddress(result.q);
+    setPlan(result);
+  }
+
   async function run() {
-    if (!mode || mode === "disconnected" || busy || !question.trim()) return;
+    if (!storageReady || !mode || mode === "disconnected" || busy || !question.trim()) return;
     setError("");
     setPlan(undefined);
     setBusy(true);
     try {
-      const result = await request<Answer | (Plan & { kind: "search" })>("chat", { question, previous, bbl, release });
-      setPrevious(question);
-      if (result.kind === "search") {
-        setAddress(result.q);
-        setPlan(result);
-      } else {
-        setMessages((items) => [...items, { question, result }]);
-        setQuestion("");
-      }
+      const previous = turns?.at(-1);
+      const bbls = mentions.map((item) => item.bbl);
+      const priorBbls = previous?.mentions?.map((item) => item.bbl) ?? (previous?.bbl ? [previous.bbl] : []);
+      const sameLots = bbls.length === priorBbls.length && bbls.every((id) => priorBbls.includes(id));
+      const result = await request<Reply>("chat", {
+        question,
+        previous: sameLots ? previous?.question ?? "" : "",
+        bbls,
+        release,
+      });
+      const id = chat?.id ?? crypto.randomUUID();
+      const turn = { question, bbl: bbls[0] ?? null, mentions, result };
+      setChats((state) => ({
+        active: id,
+        sessions: [
+          { id, turns: [...(turns ?? []), turn] },
+          ...state.sessions.filter((item) => item.id !== id),
+        ],
+      }));
+      setQuestion("");
+      if (result.kind === "search") reviewPlan(result);
     } catch (err) {
       setError((err as Error).message);
       request<{ mode: Mode }>("status").then((result) => setMode(result.mode)).catch(() => {});
@@ -104,7 +171,10 @@ export default function LotSearchAssistant({ onApply, areaActive, canLimitArea, 
         <div className="assistant-content ai-filter-review">
           <div className="section-heading">
             <strong>Review and edit filters</strong>
-            <button type="button" className="text-button" onClick={() => setPlan(undefined)}>Edit request</button>
+            <div>
+              <button type="button" className="text-button" onClick={() => setPlan(undefined)}>Back to chat</button>
+              <button type="button" className="icon-button" aria-label="Close ask ai" onClick={onClose}><X size={16} /></button>
+            </div>
           </div>
           {plan.limits.length > 0 && (
             <section className="assistant-answer" aria-label="Couldn’t apply">
@@ -120,48 +190,88 @@ export default function LotSearchAssistant({ onApply, areaActive, canLimitArea, 
           areaActive={areaActive}
           canLimitArea={canLimitArea}
           aiReview
-          onApply={(filters, area) => onApply(address.trim(), filters, area !== "all")}
+          onApply={(filters, area) => {
+            setPlan(undefined);
+            onApply(address.trim(), filters, area !== "all");
+          }}
         />
       </>
     );
   }
 
   return (
-    <div className="tool-scroll assistant-content">
-      <div className="section-heading">
-        <p>{addressLabel ? "Selected parcel: " + addressLabel : "No parcel selected"}</p>
-        <details className="ai-connection-settings">
-          <summary aria-label="AI connection settings" title="AI connection settings">
-            <Settings size={16} aria-hidden="true" />
-          </summary>
-          <div>
-            <p>{mode === "chatgpt" ? "ChatGPT connected" : mode === "api" ? "Using configured API key" : "Connect ChatGPT to use Ask AI."}</p>
-            <button type="button" className="text-button" disabled={busy || mode === undefined} onClick={changeConnection}>
-              {mode === "chatgpt" ? "Disconnect" : "Continue with ChatGPT"}
+    <div className="assistant-content floating-chat">
+      <div className="chat-transcript" role="log" aria-label="Chat messages">
+      {turns?.map(({ question, mentions, parcelLabel, result }, index) => (
+        <div key={index} className="chat-turn">
+          <p className="chat-question">{(!!mentions?.length || !!parcelLabel) && <><strong>{mentions?.map((item) => "@" + item.label).join(" · ") || "@" + parcelLabel}</strong><br /></>}{question}</p>
+          {result.kind === "answer" ? (
+            <div className="assistant-answer">
+              <p>{result.answer}</p>
+              {result.sources.length > 0 && <ol>{result.sources.map((source) => (
+                <li key={source.id} value={source.id}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.label}</a></li>
+              ))}</ol>}
+            </div>
+          ) : (
+            <button type="button" className="text-button" disabled={busy} onClick={() => reviewPlan(result)}>
+              Review suggested filters
             </button>
-          </div>
-        </details>
-      </div>
-      <p>Ask about a parcel or describe the Brooklyn lots you want to find.</p>
-      {messages.map(({ question, result }, index) => (
-        <section key={index} className="assistant-answer" aria-live="polite">
-          <strong>{question}</strong><p>{result.answer}</p>
-          {result.sources.length > 0 && <ol>{result.sources.map((source) => (
-            <li key={source.id} value={source.id}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.label}</a></li>
-          ))}</ol>}
-        </section>
+          )}
+        </div>
       ))}
-      <form onSubmit={(event) => { event.preventDefault(); void run(); }}>
-        <label htmlFor={inputId}>What are you looking for?</label>
-        <textarea id={inputId} rows={3} maxLength={700} value={question} disabled={busy}
-          placeholder={bbl ? "What work was permitted here?" : "Find vacant lots over 3,000 sq ft"}
+      <div ref={endOfChat} />
+      </div>
+      <form className="assistant-composer" onSubmit={(event) => { event.preventDefault(); void run(); }}>
+        {mentions.length > 0 && (
+          <div className="chat-mentions" aria-label="Attached lots">
+            {mentions.map(({ bbl, label }) => (
+              <button key={bbl} type="button" className="chat-mention" aria-label={`Remove parcel mention: ${label}`}
+                onClick={() => onRemoveMention(bbl)}>
+                <span>@{label}</span><X size={13} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+        <label className="sr-only" htmlFor={inputId}>What are you looking for?</label>
+        <textarea id={inputId} rows={2} maxLength={700} value={question} disabled={busy}
+          placeholder={mentions.length > 1 ? "Ask about these lots…" : mentions.length === 1 ? "What work was permitted here?" : "Find vacant lots over 3,000 sq ft"}
           onChange={(event) => { setQuestion(event.target.value); setPlan(undefined); }} />
-        <button className="primary-button" type="submit"
-          disabled={busy || !mode || mode === "disconnected" || !question.trim()}>
-          {busy ? "Working…" : "Send"}
-        </button>
+        <div className="chat-composer-actions">
+          <details ref={menu} className="chat-menu">
+            <summary className="icon-button" aria-label="Chat menu" title="Chat menu">
+              <Ellipsis size={18} aria-hidden="true" />
+            </summary>
+            <div className="chat-menu-content">
+              <button type="button" disabled={busy} onClick={() => switchChat("")}>
+                <Plus size={14} aria-hidden="true" /> New chat
+              </button>
+              <div className="chat-menu-sessions" role="group" aria-label="Sessions">
+                <strong>Sessions</strong>
+                {!chats.sessions.length && <span>No saved chats yet</span>}
+                {chats.sessions.map(({ id, turns }) => (
+                  <button key={id} type="button" disabled={busy} aria-current={id === chat?.id}
+                    onClick={() => switchChat(id)}>
+                    {turns[0]?.question.trim().slice(0, 70) || "Chat"}
+                  </button>
+                ))}
+              </div>
+              {mode === "api" ? <span>API key connected</span> : (
+                <button type="button" disabled={busy || mode === undefined} onClick={changeConnection}>
+                  {mode === "chatgpt" ? "Disconnect ChatGPT" : "Connect ChatGPT"}
+                </button>
+              )}
+            </div>
+          </details>
+          <button type="button" className="icon-button" aria-label="Close ask ai" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+          <button className="primary-button assistant-send" type="submit" aria-label="Send"
+          title={mode === "disconnected" ? "Connect ChatGPT in AI settings" : "Send"}
+          disabled={busy || !storageReady || !mode || mode === "disconnected" || !question.trim()}>
+          {busy ? <span role="status">Working…</span> : <ArrowUp size={16} aria-hidden="true" />}
+          </button>
+        </div>
       </form>
-      {mode === "disconnected" && <p>Connect ChatGPT in AI settings to send a message.</p>}
       {error && <p role="alert">{error}</p>}
     </div>
   );

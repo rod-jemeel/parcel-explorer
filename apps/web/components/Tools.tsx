@@ -23,10 +23,12 @@ export function ToolPanel({
   tool,
   onClose,
   children,
+  hidden = false,
 }: {
   tool: Exclude<Tool, null>;
   onClose: () => void;
   children: React.ReactNode;
+  hidden?: boolean;
 }) {
   const title = {
     ai: "Ask AI",
@@ -37,10 +39,11 @@ export function ToolPanel({
   }[tool];
   return (
     <section
-      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : tool === "layers" ? "layers-panel" : ""}`}
+      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : tool === "layers" ? "layers-panel" : tool === "ai" ? "chat-panel" : ""}`}
       aria-label={title}
+      hidden={hidden}
     >
-      <div className="tool-header">
+      {tool !== "ai" && <div className="tool-header">
         <h2>{title}</h2>
         <button
           className="icon-button"
@@ -49,7 +52,7 @@ export function ToolPanel({
         >
           <X size={18} />
         </button>
-      </div>
+      </div>}
       {children}
     </section>
   );

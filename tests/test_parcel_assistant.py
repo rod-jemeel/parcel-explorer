@@ -164,6 +164,33 @@ def test_chat_property_answer_uses_selected_parcel_sources(tmp_path, monkeypatch
     assert result["kind"] == "answer" and result["sources"] == evidence
 
 
+def test_chat_keeps_citations_distinct_across_attached_lots(tmp_path, monkeypatch):
+    runtime = assistant.Assistant(tmp_path)
+    lots = ["3002490016", "3000250001"]
+    looked_up = []
+
+    def lookup(root, release, bbl, *, history_limit):
+        looked_up.append((bbl, history_limit))
+        return [{"id": 1, "label": "Permit", "url": "/?parcel=" + bbl, "data": {}}]
+
+    def respond(browser, prompt, content):
+        if prompt != assistant.INSTRUCTIONS:
+            return "PROPERTY"
+        payload = json.loads(content)
+        assert payload["attached_lots"] == lots
+        assert [row["bbl"] for row in payload["evidence"]] == lots
+        return "The lots have different permits [1] [2]."
+
+    monkeypatch.setattr(assistant, "parcel_evidence", lookup)
+    monkeypatch.setattr(runtime, "respond", respond)
+    result = runtime.chat("browser", {"question": "Compare permits", "bbls": lots + lots[:1]})
+    assert looked_up == [(lots[0], 20), (lots[1], 20)]
+    assert [source["id"] for source in result["sources"]] == [1, 2]
+    assert [source["url"] for source in result["sources"]] == ["/?parcel=" + bbl for bbl in lots]
+    with pytest.raises(assistant.AssistantError):
+        runtime.chat("browser", {"question": "Compare permits", "bbls": lots * 3})
+
+
 def test_completed_text_accepts_final_message_without_deltas():
     event = {
         "type": "response.completed",

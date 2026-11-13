@@ -51,7 +51,7 @@ import {
 } from "@/lib/search";
 import Inspector, { SavedResearch, SourcesContent } from "./Inspector";
 import { FilterPanel, LayersPanel, SavedPanel, Tool, ToolPanel } from "./Tools";
-import LotSearchAssistant from "./LotSearchAssistant";
+import LotSearchAssistant, { type ParcelMention } from "./LotSearchAssistant";
 import type { MapHandle } from "./ParcelMap";
 const ParcelMap = dynamic(() => import("./ParcelMap"), {
   ssr: false,
@@ -89,6 +89,7 @@ function Workspace() {
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [debounced, setDebounced] = useState("");
   const [tool, setTool] = useState<Tool>(null);
+  const [chatMentions, setChatMentions] = useState<ParcelMention[] | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -339,16 +340,26 @@ function Workspace() {
     setResultsOpen(false);
     setInspectorOpen(false);
   };
+  const mentions = chatMentions ?? (state.selected
+    ? [{ bbl: state.selected, label: selected ? titleAddress(selected.address) : state.selected }]
+    : []);
   const selectProperty = (p: PropertySummary, fit: boolean) => {
     parcelRequest.current?.abort();
     if (resultsRef.current)
       scrollPosition.current = resultsRef.current.scrollTop;
+    if (tool === "ai" && !mentions.some((mention) => mention.bbl === p.bbl)) {
+      if (mentions.length < 4) {
+        setChatMentions([...mentions, { bbl: p.bbl, label: titleAddress(p.address) }]);
+      } else {
+        setToast("Remove a lot mention before adding another. You can attach up to four lots.");
+      }
+    }
     update({ selected: p.bbl });
     setInspectorOpen(true);
     setExpanded(true);
     setResultsOpen(false);
     setSuggestionsOpen(false);
-    setTool(null);
+    setTool((current) => current === "ai" ? current : null);
     setCandidates([]);
     setTimeout(() => {
       if (fit) mapRef.current?.fit(p.bounds, true);
@@ -784,15 +795,20 @@ function Workspace() {
             <Layers3 size={19} strokeWidth={1.7} />
           </button>
         </div>
-        {tool && coverage && (
+        {boroughMode && coverage && (
+          <ToolPanel tool="ai" onClose={closeTool} hidden={tool !== "ai"}>
+            <LotSearchAssistant bbl={state.selected} onClose={closeTool}
+              mentions={mentions.map((item) => item.bbl === selected?.bbl ? { ...item, label: titleAddress(selected.address) } : item)}
+              onRemoveMention={(bbl) => setChatMentions(mentions.filter((item) => item.bbl !== bbl))}
+              release={coverage.release_id}
+              areaActive={!!state.bounds && !!viewBounds} canLimitArea={!!viewBounds}
+              onApply={(q, filters, useMap) => submit(q, filters, useMap ? mapRef.current?.getBounds() ?? null : null)}
+            />
+          </ToolPanel>
+        )}
+        {tool && tool !== "ai" && coverage && (
           <ToolPanel tool={tool} onClose={closeTool}>
-            {tool === "ai" ? (
-              <LotSearchAssistant key={state.selected || "all"} bbl={state.selected}
-                release={coverage.release_id} addressLabel={selected ? titleAddress(selected.address) : state.selected}
-                areaActive={!!state.bounds && !!viewBounds} canLimitArea={!!viewBounds}
-                onApply={(q, filters, useMap) => submit(q, filters, useMap ? mapRef.current?.getBounds() ?? null : null)}
-              />
-            ) : tool === "filters" ? (
+            {tool === "filters" ? (
               <FilterPanel
                 key={JSON.stringify(state.filters)}
                 filters={state.filters}

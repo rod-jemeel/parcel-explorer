@@ -2564,16 +2564,34 @@ a {
 }
 .assistant-content p { margin: 0; }
 .assistant-content > p { color: var(--subtle); }
-.assistant-content form { display: grid; gap: 6px; }
-.assistant-content textarea {
-  width: 100%;
-  resize: vertical;
-  padding: 8px;
+.assistant-content .assistant-composer {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 8px;
+}
+.assistant-composer:focus-within { border-color: var(--blue); }
+.assistant-composer textarea {
+  width: 100%;
+  field-sizing: content;
+  min-height: calc(3.1em + 12px);
+  resize: none;
+  overflow: hidden;
+  padding: 6px;
+  border: 0;
+  background: transparent;
   font: inherit;
 }
-.assistant-content .primary-button { justify-self: start; }
+.assistant-composer textarea:focus { outline: none; }
+.assistant-composer .assistant-send {
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px;
+}
 .assistant-connection {
   display: flex;
   justify-content: space-between;
@@ -2757,3 +2775,115 @@ a {
 .planning-applications li p {
   margin: 4px 0;
 }
+
+.tool-panel.chat-panel {
+  top: auto;
+  bottom: 24px;
+  width: min(420px, calc(100% - 40px));
+  max-height: min(680px, calc(100% - 48px));
+}
+.floating-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 14px 16px;
+}
+.chat-session-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-session-controls select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  font: inherit;
+}
+.chat-session-controls button { flex-shrink: 0; }
+.chat-transcript {
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.chat-transcript:has(.chat-turn) { min-height: min(160px, 22vh); }
+.chat-turn { display: grid; gap: 6px; }
+.chat-question {
+  justify-self: end;
+  max-width: 88%;
+  padding: 8px 10px;
+  background: #e7eff6;
+  border-radius: 10px 10px 3px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.floating-chat .assistant-composer { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .tool-panel.chat-panel {
+    left: 12px;
+    bottom: 12px;
+    width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+  }
+}
+.tool-panel.chat-panel[hidden] { display: none; }
+.chat-composer-actions { display: flex; align-items: center; gap: 4px; }
+.chat-composer-actions .assistant-send { margin-left: auto; }
+.chat-menu { position: relative; }
+.chat-menu summary { cursor: pointer; list-style: none; }
+.chat-menu summary::-webkit-details-marker { display: none; }
+.chat-menu-content {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 2;
+  display: grid;
+  width: min(260px, 65vw);
+  max-height: min(40vh, 280px);
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+.chat-menu-content > * {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.chat-menu-content button:hover,
+.chat-menu-content button[aria-current="true"] { background: #edf4f9; }
+.chat-mention {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #e7eff6;
+  color: var(--blue);
+}
+.chat-mention span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-mention svg { flex-shrink: 0; }
+.tool-panel.chat-panel { bottom: 68px; max-height: calc(100% - 88px); overflow: visible; }
+.floating-chat { gap: 8px; padding: 8px; }
+.chat-transcript:empty { display: none; }
+
+.chat-menu-content .chat-menu-sessions {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  border-block: 1px solid var(--line);
+}
+.chat-menu-sessions > * { padding: 4px 8px; text-align: left; }
+.chat-menu-sessions > strong, .chat-menu-sessions > span { color: var(--subtle); font-size: 11px; }
+.chat-mentions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }

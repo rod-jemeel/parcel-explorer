@@ -129,7 +129,7 @@ def public_event(event):
     return data
 
 
-def parcel_evidence(root, release, bbl):
+def parcel_evidence(root, release, bbl, *, history_limit=40):
     if not isinstance(release, str) or not re.fullmatch(r"bk-[a-f0-9]{12}", release):
         raise AssistantError("Invalid parcel release.")
     if not isinstance(bbl, str) or not BBL.fullmatch(bbl):
@@ -155,7 +155,7 @@ def parcel_evidence(root, release, bbl):
             },
         }]
         for kind in ("document", "permit", "transfer"):
-            for event in history(db, release, bbl, kind, 0, limit=40)["events"]:
+            for event in history(db, release, bbl, kind, 0, limit=history_limit)["events"]:
                 record = public_event(event)
                 label = record.get("document_name") or record.get("document_type") or kind.capitalize()
                 reference = event.get("permit_job") or event["source_record_id"]
@@ -340,17 +340,35 @@ class Assistant:
         previous = payload.get("previous")
         if isinstance(previous, str) and previous.strip():
             question = f"Previous request: {previous[:700]}\nCurrent request: {question}"
-        bbl = payload.get("bbl")
+        bbls = payload.get("bbls", [payload["bbl"]] if payload.get("bbl") else [])
+        if (not isinstance(bbls, list) or len(bbls) > 4
+                or any(not isinstance(bbl, str) or not BBL.fullmatch(bbl) for bbl in bbls)):
+            raise AssistantError("Attach up to four valid Brooklyn tax lots.")
+        bbls = list(dict.fromkeys(bbls))
         intent = self.respond(browser, (
             "Classify the current request. Reply exactly SEARCH for finding or filtering lots, "
-            "PROPERTY for questions about a specific or selected property, or CLARIFY when ambiguous. "
+            "PROPERTY for questions or comparisons about specific or attached properties, or CLARIFY when ambiguous. "
             "The previous request is context only. Do not answer the request."
         ), question).strip().upper()
         if intent == "SEARCH":
             return {"kind": "search", **search_plan(self.respond(browser, SEARCH_INSTRUCTIONS, question))}
-        if intent == "PROPERTY" and bbl:
-            evidence = parcel_evidence(self.root, payload.get("release"), bbl)
-            answer = self.respond(browser, INSTRUCTIONS, json.dumps({"question": question, "evidence": evidence}))
+        if intent == "PROPERTY" and bbls:
+            release = payload.get("release")
+            if len(bbls) == 1:
+                evidence = parcel_evidence(self.root, release, bbls[0])
+            else:
+                evidence = []
+                for bbl in bbls:
+                    for item in parcel_evidence(self.root, release, bbl, history_limit=40 // len(bbls)):
+                        evidence.append({
+                            **item,
+                            "id": len(evidence) + 1,
+                            "label": f'{item["label"]} · BBL {bbl}',
+                            "bbl": bbl,
+                        })
+            answer = self.respond(browser, INSTRUCTIONS, json.dumps({
+                "question": question, "attached_lots": bbls, "evidence": evidence,
+            }))
             return {"kind": "answer", "answer": answer, "sources": [
                 {key: item[key] for key in ("id", "label", "url")} for item in citations(answer, evidence)
             ]}
