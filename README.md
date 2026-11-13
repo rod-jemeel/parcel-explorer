@@ -12,6 +12,14 @@ Parcel Explorer is a local-first workspace for researching Brooklyn tax lots. Se
 
 ## Demo
 
+### Planning applications and multi-lot chat
+
+https://github.com/user-attachments/assets/9352a9c0-1036-4e7c-a60b-18a0969bf938
+
+Open a NYC planning application from a parcel, then click a second lot on the map to attach it alongside the first in Ask AI. The walkthrough also shows where to start a new chat and find saved sessions.
+
+[Download the planning and chat walkthrough](docs/media/planning-and-chat-walkthrough.mp4)
+
 ### AI lot search
 
 https://github.com/user-attachments/assets/81019ef5-f9d2-4259-9dca-a243856e7ed6
