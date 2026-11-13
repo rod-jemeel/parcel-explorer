@@ -12,6 +12,14 @@ Parcel Explorer is a local-first workspace for researching Brooklyn tax lots. Se
 
 ## Demo
 
+### Compare two lots and open the sources
+
+https://github.com/user-attachments/assets/82b19ad8-60f9-4b3f-a2d8-6a0de6b115df
+
+Select two Brooklyn lots, submit a permit comparison in Ask AI, and follow the citations to each parcel's imported records. The walkthrough uses a labeled example response based on official public data available online that Parcel Explorer stores in a database.
+
+[Download the two-lot comparison walkthrough](docs/media/two-lot-comparison.mp4)
+
 ### Planning applications and multi-lot chat
 
 https://github.com/user-attachments/assets/9352a9c0-1036-4e7c-a60b-18a0969bf938
