@@ -20,35 +20,6 @@ Select two Brooklyn lots, read a live permit comparison in Ask AI, and open one 
 
 [Download the two-lot comparison walkthrough](docs/media/two-lot-comparison.mp4)
 
-<details>
-<summary>Archived walkthroughs with earlier interface layouts</summary>
-
-### Planning applications and multi-lot chat
-
-https://github.com/user-attachments/assets/9352a9c0-1036-4e7c-a60b-18a0969bf938
-
-Open a NYC planning application from a parcel, then click a second lot on the map to attach it alongside the first in Ask AI. The walkthrough also shows where to start a new chat and find saved sessions.
-
-[Download the planning and chat walkthrough](docs/media/planning-and-chat-walkthrough.mp4)
-
-### AI lot search
-
-https://github.com/user-attachments/assets/81019ef5-f9d2-4259-9dca-a243856e7ed6
-
-A live Ask AI search for vacant Brooklyn lots. Review the suggested filters, raise the minimum lot area from 1,500 to 2,000 sq ft, and limit the search to the current map view. The search returns 19 matching parcels.
-
-[Download the AI search walkthrough](docs/media/ai-search-walkthrough.mp4)
-
-### Parcel research
-
-https://github.com/user-attachments/assets/6ffcc059-b767-4511-8626-672c37851ee7
-
-[Download the MP4](docs/media/walkthrough.mp4)
-
-*25-second walkthrough of the parcel map, recorded documents, permits, assessments, and saved comparisons.*
-
-</details>
-
 ## The research workflow
 
 1. Search an address or BBL, or apply property filters. Use **Limit to map view** to search the visible area.
