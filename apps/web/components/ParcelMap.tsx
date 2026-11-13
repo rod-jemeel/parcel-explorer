@@ -13,6 +13,7 @@ import {
   Plus,
   Minus,
   LocateFixed,
+  Layers3,
   Compass,
 } from "lucide-react";
 import type { Bounds, Coverage } from "@/lib/model";
@@ -45,6 +46,8 @@ interface Props {
   colored: boolean;
   imagery: boolean;
   buildings: boolean;
+  layersOpen: boolean;
+  onToggleLayers: () => void;
   onSelect: (bbls: string[]) => void;
   onMove: (b: Bounds, c: { lng: number; lat: number; zoom: number }) => void;
   initialCamera: { lng: number; lat: number; zoom: number } | null;
@@ -521,6 +524,10 @@ const ParcelMap = forwardRef<MapHandle, Props>(function ParcelMap(props, ref) {
           }
         >
           <LocateFixed size={19} />
+        </button>
+        <button type="button" aria-label="Map layers" title="Map layers"
+          aria-expanded={props.layersOpen} onClick={props.onToggleLayers}>
+          <Layers3 size={19} strokeWidth={1.7} />
         </button>
       </div>
     </>

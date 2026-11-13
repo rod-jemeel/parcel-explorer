@@ -2878,6 +2878,18 @@ a {
 .floating-chat { gap: 8px; padding: 8px; }
 .chat-transcript:empty { display: none; }
 
+.search-workspace .filters-panel {
+  inset: calc(100% + 6px) 42px auto auto;
+  width: min(350px, calc(100vw - 32px));
+  max-height: min(640px, calc(100dvh - 110px));
+}
+.filters-panel .tool-header, .layers-panel .tool-header { padding: 5px 10px 5px 14px; }
+.tool-panel.layers-panel {
+  inset: 20px 66px auto auto;
+  width: min(350px, calc(100% - 82px));
+  max-height: calc(100% - 40px);
+}
+.map-controls button[aria-expanded="true"] { color: var(--blue); background: #edf4f9; }
 .chat-menu-content .chat-menu-sessions {
   display: grid;
   gap: 2px;
@@ -2886,4 +2898,15 @@ a {
 }
 .chat-menu-sessions > * { padding: 4px 8px; text-align: left; }
 .chat-menu-sessions > strong, .chat-menu-sessions > span { color: var(--subtle); font-size: 11px; }
+@media (max-width: 759px) {
+  .search-workspace .filters-panel {
+    right: 0;
+    max-height: calc(100dvh - 125px);
+  }
+  .tool-panel.layers-panel {
+    inset: 12px 53px auto auto;
+    width: min(350px, calc(100% - 65px));
+    max-height: calc(100% - 24px);
+  }
+}
 .chat-mentions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }

@@ -19,7 +19,6 @@ import {
   CornerDownLeft,
   FileText,
   Info,
-  Layers3,
   LoaderCircle,
   LockKeyhole,
   MapPin,
@@ -644,6 +643,7 @@ function Workspace() {
               }
               aria-label="Open property filters"
               title="Property filters"
+              aria-expanded={tool === "filters"}
               onClick={() => toggleTool("filters")}
             >
               <SlidersHorizontal size={18} />
@@ -657,6 +657,26 @@ function Workspace() {
               <ArrowRight size={18} />
             </button>
           </form>
+          {tool === "filters" && coverage && (
+            <ToolPanel tool="filters" onClose={closeTool}>
+              <FilterPanel
+                key={JSON.stringify(state.filters)}
+                filters={state.filters}
+                areaActive={!!state.bounds}
+                canLimitArea={!!viewBounds}
+                onApply={(f, area) => {
+                  const bounds = area === "current" ? mapRef.current?.getBounds() ?? null
+                    : area === "keep" ? state.bounds : null;
+                  update({ filters: f, bounds });
+                  setHasSearched(true);
+                  setResultsOpen(true);
+                  setTool(null);
+                  setInspectorOpen(false);
+                  setVisibleCount(40);
+                }}
+              />
+            </ToolPanel>
+          )}
           {suggestionsOpen && input && (
             <div className="suggestions" id="search-suggestions" role="listbox">
               <div className="suggestion-label">Imported property matches</div>
@@ -744,6 +764,8 @@ function Workspace() {
             colored={colored}
             imagery={imagery}
             buildings={buildings}
+            layersOpen={tool === "layers"}
+            onToggleLayers={() => toggleTool("layers")}
             initialCamera={state.camera}
             onSelect={(ids) => {
               parcelRequest.current?.abort();
@@ -784,17 +806,6 @@ function Workspace() {
             <span>Loading published coverage…</span>
           </div>
         )}
-        <div className="tool-rail">
-          <button
-            aria-label="Map layers"
-            title="Map layers"
-            aria-expanded={tool === "layers"}
-            className={tool === "layers" ? "active" : ""}
-            onClick={() => toggleTool("layers")}
-          >
-            <Layers3 size={19} strokeWidth={1.7} />
-          </button>
-        </div>
         {boroughMode && coverage && (
           <ToolPanel tool="ai" onClose={closeTool} hidden={tool !== "ai"}>
             <LotSearchAssistant bbl={state.selected} onClose={closeTool}
@@ -806,26 +817,9 @@ function Workspace() {
             />
           </ToolPanel>
         )}
-        {tool && tool !== "ai" && coverage && (
+        {tool && tool !== "ai" && tool !== "filters" && coverage && (
           <ToolPanel tool={tool} onClose={closeTool}>
-            {tool === "filters" ? (
-              <FilterPanel
-                key={JSON.stringify(state.filters)}
-                filters={state.filters}
-                areaActive={!!state.bounds}
-                canLimitArea={!!viewBounds}
-                onApply={(f, area) => {
-                  const bounds = area === "current" ? mapRef.current?.getBounds() ?? null
-                    : area === "keep" ? state.bounds : null;
-                  update({ filters: f, bounds });
-                  setHasSearched(true);
-                  setResultsOpen(true);
-                  setTool(null);
-                  setInspectorOpen(false);
-                  setVisibleCount(40);
-                }}
-              />
-            ) : tool === "layers" ? (
+            {tool === "layers" ? (
               <LayersPanel
                 coverage={coverage}
                 parcels={parcels}

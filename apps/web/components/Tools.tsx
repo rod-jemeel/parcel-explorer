@@ -39,7 +39,7 @@ export function ToolPanel({
   }[tool];
   return (
     <section
-      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : tool === "layers" ? "layers-panel" : tool === "ai" ? "chat-panel" : ""}`}
+      className={`tool-panel ${tool === "coverage" ? "coverage-panel" : tool === "layers" ? "layers-panel" : tool === "ai" ? "chat-panel" : tool === "filters" ? "filters-panel" : ""}`}
       aria-label={title}
       hidden={hidden}
     >
@@ -88,9 +88,6 @@ export function FilterPanel({
   return (
     <>
       <div className="tool-scroll">
-        {!aiReview && <p className="tool-description">
-          Find properties in the imported Brooklyn area. Filters combine across categories.
-        </p>}
         <fieldset className="filter-fieldset">
           <legend>Property use</legend>
           {Object.entries(LAND_USES).map(([id, label]) => (
