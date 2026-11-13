@@ -77,24 +77,42 @@ def json_request(url, **kwargs):
 def completed_text(stream):
     chunks = []
     for line in stream:
-        if not line.startswith(b"data: "):
+        if not line.startswith(b"data:"):
             continue
-        event = json.loads(line[6:])
+        payload = line[5:].strip()
+        if payload == b"[DONE]":
+            break
+        event = json.loads(payload)
         kind = event.get("type")
         if kind == "response.output_text.delta":
             chunks.append(event["delta"])
         elif kind == "response.completed":
-            answer = "".join(chunks).strip()
+            final_parts = [
+                part["text"]
+                for item in (event.get("response") or {}).get("output", [])
+                if item.get("type") == "message"
+                for part in item.get("content", [])
+                if part.get("type") == "output_text" and isinstance(part.get("text"), str)
+            ]
+            answer = "\n".join(final_parts).strip() or "".join(chunks).strip()
             if answer:
                 return answer
             break
         elif kind in ("response.failed", "response.incomplete", "error"):
-            error = event.get("response", {}).get("error") or event
+            response = event.get("response") or {}
+            reason = (response.get("incomplete_details") or {}).get("reason")
+            error = response.get("error") or event.get("error") or event
             if error.get("code") == "subscription_sharing_usage_limit_exceeded":
                 raise AssistantError("ChatGPT plan usage is limited right now.", 429)
             if error.get("code") == "subscription_sharing_user_not_eligible":
                 raise AssistantError("This ChatGPT account or workspace cannot use plan access here.", 403)
-            break
+            if reason == "max_output_tokens":
+                raise AssistantError("OpenAI reached the output limit before finishing.", 502)
+            if reason == "content_filter":
+                raise AssistantError("OpenAI stopped the answer because of its content filter.", 502)
+            code = error.get("code")
+            safe_code = code if isinstance(code, str) and re.fullmatch(r"[a-z0-9_]{1,64}", code) else "unknown"
+            raise AssistantError(f"OpenAI ended the response ({kind}, {safe_code}).", 502)
     raise AssistantError("OpenAI did not return a complete answer. Try again.", 502)
 
 

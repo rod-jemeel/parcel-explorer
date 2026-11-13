@@ -162,3 +162,25 @@ def test_chat_property_answer_uses_selected_parcel_sources(tmp_path, monkeypatch
     monkeypatch.setattr(runtime, "respond", lambda *args: next(outputs))
     result = runtime.chat("browser", {"question": "What work was permitted here?", "bbl": "3002490016"})
     assert result["kind"] == "answer" and result["sources"] == evidence
+
+
+def test_completed_text_accepts_final_message_without_deltas():
+    event = {
+        "type": "response.completed",
+        "response": {"output": [
+            {"type": "reasoning"},
+            {"type": "message", "content": [{"type": "output_text", "text": "Permit [1]."}]},
+        ]},
+    }
+    stream = io.BytesIO(b"data:" + json.dumps(event).encode() + b"\n")
+    assert assistant.completed_text(stream) == "Permit [1]."
+
+
+def test_completed_text_reports_incomplete_reason():
+    event = {
+        "type": "response.incomplete",
+        "response": {"incomplete_details": {"reason": "max_output_tokens"}},
+    }
+    stream = io.BytesIO(b"data: " + json.dumps(event).encode() + b"\n")
+    with pytest.raises(assistant.AssistantError, match="output limit"):
+        assistant.completed_text(stream)
